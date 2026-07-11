@@ -16,6 +16,7 @@ let game = new Game(Math.min(Number(wx.getStorageSync('caveLevel')) || 0, LEVELS
 let scene = wx.getStorageSync('seenIntro') ? 'map' : 'title'
 let touch = null, controls = [], transition = 1, shake = 0, particles = [], heldDirection = null, repeatAt = 0, visualWorms = null
 let motion = null, bumpMotion = null, pushMotion = null, failedMotion = null, lastDirections = {}
+let lastActionAt = Date.now()
 let audio
 let muted = Boolean(wx.getStorageSync('muted'))
 
@@ -140,15 +141,25 @@ function wormBody(worm, index, tile, ox, oy, time, feel = {}) {
   const sideX = -vy * tile * .12, sideY = vx * tile * .12, lookX = vx * tile * .045, lookY = vy * tile * .045
   for (const side of [-1, 1]) {
     const ex = hx + vx * tile * .14 + sideX * side, ey = hy + vy * tile * .14 + sideY * side
-    ctx.fillStyle = C.white; ctx.beginPath(); ctx.arc(ex, ey, tile * .105, 0, 7); ctx.fill()
-    ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(ex + lookX, ey + lookY, tile * .045, 0, 7); ctx.fill()
+    if (feel.yawn || feel.celebrate) { ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(1.5, tile * .035); ctx.beginPath(); ctx.arc(ex, ey, tile * .075, 0, Math.PI); ctx.stroke() }
+    else {
+      const eye = tile * (feel.nervous ? .13 : .105), pupil = tile * (feel.strain ? .034 : .045)
+      ctx.fillStyle = C.white; ctx.beginPath(); ctx.arc(ex, ey, eye, 0, 7); ctx.fill()
+      ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(ex + lookX, ey + lookY, pupil, 0, 7); ctx.fill()
+      if (feel.strain) { ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(1.5, tile * .035); ctx.beginPath(); ctx.moveTo(ex - sideX * .35 - vx * tile * .05, ey - sideY * .35 - vy * tile * .05); ctx.lineTo(ex + sideX * .35 + vx * tile * .02, ey + sideY * .35 + vy * tile * .02); ctx.stroke() }
+    }
   }
+  const mx = hx + vx * tile * .29, my = hy + vy * tile * .29
+  if (feel.yawn) { ctx.fillStyle = '#713747'; ctx.beginPath(); ctx.ellipse(mx, my, tile * .09, tile * .13, Math.atan2(vy, vx), 0, 7); ctx.fill() }
+  else if (feel.strain) { ctx.fillStyle = C.white; ctx.beginPath(); ctx.ellipse(mx, my, tile * .11, tile * .045, Math.atan2(vy, vx), 0, 7); ctx.fill(); ctx.strokeStyle = C.ink; ctx.lineWidth = 1; ctx.stroke() }
+  else if (feel.celebrate) { ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(1.5, tile * .035); ctx.beginPath(); ctx.arc(mx - vx * tile * .05, my - vy * tile * .05, tile * .1, 0, Math.PI); ctx.stroke() }
   if (index === game.active && game.worms.length > 1) { ctx.strokeStyle = C.yellow; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hx, hy, tile * .47, 0, 7); ctx.stroke() }
   if (feel.moving && amount > .12) {
     const tail = worm[worm.length - 1], tx = ox + (tail[0] + .5) * tile, ty = oy + (tail[1] + .5) * tile
     ctx.fillStyle = 'rgba(93,55,45,.55)'; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(tx - vx * tile * (.28 + i * .12), ty - vy * tile * (.28 + i * .12) + (i - 1) * 2, tile * (.025 + i * .008), 0, 7); ctx.fill() }
   }
   if (feel.sweat) { ctx.fillStyle = '#9cdded'; ctx.beginPath(); ctx.moveTo(hx - vy * tile * .36, hy + vx * tile * .36); ctx.quadraticCurveTo(hx - vy * tile * .5 - vx * 4, hy + vx * tile * .5 - vy * 4, hx - vy * tile * .39, hy + vx * tile * .55); ctx.quadraticCurveTo(hx - vy * tile * .29, hy + vx * tile * .46, hx - vy * tile * .36, hy + vx * tile * .36); ctx.fill() }
+  if (feel.celebrate) for (const side of [-1, 1]) { ctx.fillStyle = side > 0 ? C.yellow : '#ff86b5'; ctx.beginPath(); ctx.arc(hx - vy * tile * .58 * side, hy + vx * tile * .58 * side + Math.sin(time / 100) * 3, tile * .055, 0, 7); ctx.fill() }
 }
 
 function particlesDraw() {
@@ -158,7 +169,16 @@ function particlesDraw() {
 
 function burst(x, y, color, count = 12) { for (let i = 0; i < count; i++) { const a = Math.random() * 7, speed = .5 + Math.random() * 2; particles.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, size: 1 + Math.random() * 3, color, life: 22 }) } }
 function ease(t) { return 1 - Math.pow(1 - Math.max(0, Math.min(1, t)), 3) }
-function clearAnimation() { visualWorms = null; motion = null; bumpMotion = null; pushMotion = null; failedMotion = null; lastDirections = {} }
+function clearAnimation() { visualWorms = null; motion = null; bumpMotion = null; pushMotion = null; failedMotion = null; lastDirections = {}; lastActionAt = Date.now() }
+function characterFeel(worm, index, now) {
+  if (game.won) return { celebrate: true }
+  if (now - lastActionAt < 900) return {}
+  const [hx, hy] = worm[0], other = game.worms.map((w, i) => i === index ? null : w[0]).filter(Boolean).sort((a, b) => Math.abs(a[0] - hx) + Math.abs(a[1] - hy) - Math.abs(b[0] - hx) - Math.abs(b[1] - hy))[0]
+  const targets = [...game.apples, ...game.rocks, ...game.eggs, ...game.scissors, ...game.buttons].map(p => p.split(',').map(Number)); if (game.exit) targets.push(game.exit)
+  const target = other && Math.abs(other[0] - hx) + Math.abs(other[1] - hy) <= 5 ? other : targets.sort((a, b) => Math.abs(a[0] - hx) + Math.abs(a[1] - hy) - Math.abs(b[0] - hx) - Math.abs(b[1] - hy))[0]
+  const idle = now - lastActionAt, yawn = idle > 5000 && (idle - 5000) % 5200 < 1400, nearEgg = [...game.eggs].some(p => { const [x, y] = p.split(',').map(Number); return Math.abs(x - hx) + Math.abs(y - hy) <= 2 })
+  return { direction: target ? [target[0] - hx, target[1] - hy] : undefined, yawn, nervous: nearEgg }
+}
 
 function play(time) {
   controls = []; ctx.save(); if (shake > 0) { ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake *= .82 }
@@ -201,10 +221,12 @@ function play(time) {
     if (!visualWorms[i] || visualWorms[i].length !== worm.length) visualWorms[i] = copyWorms([worm])[0]
     const display = copyWorms([visualWorms[i]])[0], activeMotion = motion && i === game.active, headProgress = activeMotion ? Math.max(0, Math.min(1, (now - motion.start - motion.delay) / 105)) : 0
     let feel = activeMotion ? { direction: motion.direction, turn: motion.turn, amount: Math.sin(Math.PI * headProgress), moving: true } : {}
+    if (!activeMotion) feel = characterFeel(worm, i, now)
+    if (game.won) display.forEach((part, j) => { part[0] += Math.sin(time / 115 + j * .8 + i) * .07; part[1] += Math.cos(time / 140 + j * .7 + i) * .06 })
     if (bumpMotion && i === game.active) {
       const progress = Math.min(1, (now - bumpMotion.start) / 170), amount = Math.sin(Math.PI * progress)
       display[0][0] += bumpMotion.direction[0] * amount * .13; display[0][1] += bumpMotion.direction[1] * amount * .13
-      feel = { direction: bumpMotion.direction, amount, bump: true, sweat: Boolean(failedMotion?.type) }
+      feel = { direction: bumpMotion.direction, amount, bump: true, sweat: Boolean(failedMotion?.type), strain: Boolean(failedMotion?.type) }
       if (progress >= 1) bumpMotion = null
     }
     wormBody(display, i, tile, ox, oy, time, feel)
@@ -237,6 +259,7 @@ function play(time) {
 }
 
 function move(direction, repeating = false) {
+  lastActionAt = Date.now()
   const interaction = game.interaction(direction)
   if (repeating && interaction !== 'move' && interaction !== 'apple') { heldDirection = null; return false }
   if (!visualWorms || visualWorms.length !== game.worms.length) visualWorms = copyWorms(game.worms)
@@ -270,7 +293,7 @@ function dragDirection(t) {
   if (Math.hypot(dx, dy) < 18) return null
   return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')
 }
-wx.onTouchStart(e => { const t = e.touches[0]; touch = { x: t.clientX, y: t.clientY, moved: false }; heldDirection = null })
+wx.onTouchStart(e => { const t = e.touches[0]; lastActionAt = Date.now(); touch = { x: t.clientX, y: t.clientY, moved: false }; heldDirection = null })
 wx.onTouchMove(e => {
   if (!touch || scene !== 'play' || touch.y > FOOTER_Y - 10) return
   const direction = dragDirection(e.touches[0])
