@@ -25,6 +25,12 @@ const team = new Game(5)
 assert.equal(team.select(1), true)
 assert.equal(team.active, 1)
 
+const pressure = new Game(3)
+pressure.worm = [[3, 3], [2, 3]]
+assert.equal(pressure.move('right'), true)
+assert.equal(pressure.doorsOpen, true)
+assert.equal(pressure.buttonChanged, true)
+
 const body = new Game(0)
 const headId = body.worm[0].id, middleId = body.worm[1].id
 body.setSegmentState(middleId, { charged: true })

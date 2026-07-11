@@ -78,6 +78,7 @@ class Game {
     this.won = false
     this.message = ''
     this.eggDelivered = false
+    this.buttonChanged = false
     this.event = 'load'
   }
 
@@ -97,7 +98,7 @@ class Game {
     this.nextSegmentId = state.nextSegmentId; this.worms = state.worms.map(worm => this.makeWorm(worm)); this.active = state.active; this.relink()
     this.apples = new Set(state.apples); this.rocks = new Set(state.rocks); this.eggs = new Set(state.eggs)
     this.moves = state.moves; this.won = state.won; this.eggDelivered = state.eggDelivered
-    this.message = ''; this.event = 'undo'
+    this.message = ''; this.event = 'undo'; this.buttonChanged = false
   }
 
   undo() { if (this.history.length) { this.restore(this.history.pop()); return true } return false }
@@ -153,6 +154,7 @@ class Game {
 
   move(direction) {
     if (this.won || !DIRS[direction]) return false
+    this.buttonChanged = false
     const [dx, dy] = DIRS[direction]
     const [hx, hy] = this.worm[0]
     const next = [hx + dx, hy + dy]
@@ -167,6 +169,7 @@ class Game {
       if (this.blocked(beyond, tail)) { this.message = pushesEgg ? '蛋壳很薄，不能硬挤' : '石头后面没有空间'; this.event = 'bump'; return false }
     } else if (this.blocked(next, tail)) { this.message = '这边过不去'; this.event = 'bump'; return false }
 
+    const doorsWereOpen = this.doorsOpen
     this.history.push(this.snapshot())
     this.message = ''
     if (pushesRock || pushesEgg) {
@@ -185,6 +188,8 @@ class Game {
     if (grows) { this.apples.delete(target); this.message = '嚼嚼！长了一截' }
     this.moves++
     this.splitAtScissors()
+    this.buttonChanged = doorsWereOpen !== this.doorsOpen
+    if (this.buttonChanged && !this.message) this.message = this.doorsOpen ? '咔哒！门打开了' : '按钮弹起来了'
 
     const eggReady = this.nests.size === 0 || this.eggDelivered
     if (this.exit && target === key(this.exit) && eggReady && this.apples.size === 0) { this.won = true; this.event = 'win' }
