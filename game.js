@@ -1,4 +1,4 @@
-const { Game, LEVELS, key } = require('./core')
+const { Game, LEVELS, DIRS, key } = require('./core')
 
 const sys = wx.getSystemInfoSync()
 const W = sys.windowWidth, H = sys.windowHeight, DPR = sys.pixelRatio || 1
@@ -15,6 +15,7 @@ const C = { dirt: '#934b3f', deep: '#21191e', tunnel: '#30272b', ridge: '#64342f
 let game = new Game(Math.min(Number(wx.getStorageSync('caveLevel')) || 0, LEVELS.length - 1))
 let scene = wx.getStorageSync('seenIntro') ? 'map' : 'title'
 let touch = null, controls = [], transition = 1, shake = 0, particles = [], heldDirection = null, repeatAt = 0, visualWorms = null
+let motion = null, bumpMotion = null, pushMotion = null, lastDirections = {}
 let audio
 let muted = Boolean(wx.getStorageSync('muted'))
 
@@ -71,7 +72,7 @@ function mapScreen() {
     ctx.font = '11px sans-serif'; ctx.fillText(i < unlocked ? level.name : '未发现', x + size / 2, y + size * .72)
     const best = Number(wx.getStorageSync(`best_${i}`)) || 0
     if (best) { ctx.fillStyle = 'rgba(255,255,255,.65)'; ctx.font = '9px sans-serif'; ctx.fillText(`${best}步`, x + size / 2, y + size - 6) }
-    if (i < unlocked) addControl(x, y, size, size, () => { game.load(i); scene = 'play'; transition = 1; sound('select') })
+    if (i < unlocked) addControl(x, y, size, size, () => { game.load(i); clearAnimation(); scene = 'play'; transition = 1; sound('select') })
   })
   button('返回标题', 18, FOOTER_Y, 90, () => { scene = 'title' })
   button(muted ? '声音：关' : '声音：开', W - 104, FOOTER_Y, 86, () => { muted = !muted; wx.setStorageSync('muted', muted); if (!muted) sound('select') })
@@ -125,13 +126,14 @@ function object(type, x, y, s, t) {
   ctx.restore()
 }
 
-function wormBody(worm, index, tile, ox, oy, time) {
+function wormBody(worm, index, tile, ox, oy, time, feel = {}) {
   ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = index === game.active ? C.pink : '#dd7891'; ctx.lineWidth = tile * .78
   ctx.beginPath(); worm.forEach((p, i) => { const x = ox + (p[0] + .5) * tile, y = oy + (p[1] + .5) * tile; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y) }); ctx.stroke()
   worm.forEach((p, i) => { if (i && i % 2) { ctx.fillStyle = C.rose; ctx.beginPath(); ctx.arc(ox + (p[0] + .5) * tile, oy + (p[1] + .5) * tile, tile * .31, 0, 7); ctx.fill() } })
-  const head = worm[0], next = worm[1] || [head[0] - 1, head[1]], vx = head[0] - next[0], vy = head[1] - next[1], bob = Math.sin(time / 180 + index) * tile * .025
+  const head = worm[0], next = worm[1] || [head[0] - 1, head[1]], rawX = feel.direction?.[0] ?? head[0] - next[0], rawY = feel.direction?.[1] ?? head[1] - next[1], length = Math.hypot(rawX, rawY) || 1, vx = rawX / length, vy = rawY / length, bob = Math.sin(time / 180 + index) * tile * .025
   const hx = ox + (head[0] + .5) * tile, hy = oy + (head[1] + .5) * tile + bob
-  ctx.fillStyle = index === game.active ? C.pink : '#dd7891'; ctx.beginPath(); ctx.arc(hx, hy, tile * .4, 0, 7); ctx.fill()
+  const amount = feel.amount || 0, long = feel.bump ? 1 - amount * .25 : feel.turn ? 1 - amount * .16 : 1 + amount * .1, wide = feel.bump ? 1 + amount * .18 : feel.turn ? 1 + amount * .13 : 1 - amount * .06
+  ctx.fillStyle = index === game.active ? C.pink : '#dd7891'; ctx.beginPath(); ctx.ellipse(hx, hy, tile * .4 * long, tile * .4 * wide, Math.atan2(vy, vx), 0, 7); ctx.fill()
   const sideX = -vy * tile * .12, sideY = vx * tile * .12, lookX = vx * tile * .045, lookY = vy * tile * .045
   for (const side of [-1, 1]) {
     const ex = hx + vx * tile * .14 + sideX * side, ey = hy + vy * tile * .14 + sideY * side
@@ -147,6 +149,8 @@ function particlesDraw() {
 }
 
 function burst(x, y, color, count = 12) { for (let i = 0; i < count; i++) { const a = Math.random() * 7, speed = .5 + Math.random() * 2; particles.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, size: 1 + Math.random() * 3, color, life: 22 }) } }
+function ease(t) { return 1 - Math.pow(1 - Math.max(0, Math.min(1, t)), 3) }
+function clearAnimation() { visualWorms = null; motion = null; bumpMotion = null; pushMotion = null; lastDirections = {} }
 
 function play(time) {
   controls = []; ctx.save(); if (shake > 0) { ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake *= .82 }
@@ -157,16 +161,39 @@ function play(time) {
     ctx.fillStyle = 'rgba(255,255,255,.018)'; ctx.beginPath(); ctx.arc(ox + (x + .25) * tile, oy + (y + .28) * tile, Math.max(1, tile * .025), 0, 7); ctx.fill(); ctx.fillStyle = C.tunnel
   }
   ctx.fillStyle = C.ridge; game.walls.forEach(p => { const [x, y] = p.split(',').map(Number); rr(ox + x * tile + 2, oy + y * tile + 3, tile - 4, tile - 5, tile * .14); ctx.fillStyle = 'rgba(255,210,185,.07)'; rr(ox + x * tile + 5, oy + y * tile + 5, tile - 10, Math.max(2, tile * .08), tile * .04); ctx.fillStyle = C.ridge })
-  const each = (set, type) => set.forEach(p => { const [x, y] = p.split(',').map(Number); object(type, ox + x * tile, oy + y * tile, tile, time) })
+  const now = Date.now()
+  const each = (set, type) => set.forEach(p => { if (pushMotion && pushMotion.type === type && p === pushMotion.to) return; const [x, y] = p.split(',').map(Number); object(type, ox + x * tile, oy + y * tile, tile, time) })
   each(game.buttons, 'button'); each(game.nests, 'nest'); each(game.scissors, 'scissors')
   game.doors.forEach(p => { const [x, y] = p.split(',').map(Number), px = ox + x * tile, py = oy + y * tile; ctx.fillStyle = game.doorsOpen ? 'rgba(145,190,114,.22)' : C.cream; rr(px + tile * .35, py, tile * .3, tile, tile * .09) })
   if (game.exit) object('exit', ox + game.exit[0] * tile, oy + game.exit[1] * tile, tile, time)
   each(game.apples, 'apple'); each(game.rocks, 'rock'); each(game.eggs, 'egg')
+  if (pushMotion) {
+    const progress = ease((now - pushMotion.start - 50) / 105), x = pushMotion.from[0] + (pushMotion.target[0] - pushMotion.from[0]) * progress, y = pushMotion.from[1] + (pushMotion.target[1] - pushMotion.from[1]) * progress
+    object(pushMotion.type, ox + x * tile, oy + y * tile, tile, time)
+    if (now - pushMotion.start >= 155) pushMotion = null
+  }
   if (!visualWorms || visualWorms.length !== game.worms.length) visualWorms = copyWorms(game.worms)
+  if (motion) {
+    let finished = true
+    motion.to.forEach((worm, i) => worm.forEach((target, j) => {
+      const progress = ease((now - motion.start - motion.delay - j * 18) / 105)
+      visualWorms[i][j][0] = motion.from[i][j][0] + (target[0] - motion.from[i][j][0]) * progress
+      visualWorms[i][j][1] = motion.from[i][j][1] + (target[1] - motion.from[i][j][1]) * progress
+      if (progress < 1) finished = false
+    }))
+    if (finished) motion = null
+  }
   game.worms.forEach((worm, i) => {
     if (!visualWorms[i] || visualWorms[i].length !== worm.length) visualWorms[i] = copyWorms([worm])[0]
-    visualWorms[i].forEach((p, j) => { p[0] += (worm[j][0] - p[0]) * .28; p[1] += (worm[j][1] - p[1]) * .28 })
-    wormBody(visualWorms[i], i, tile, ox, oy, time)
+    const display = copyWorms([visualWorms[i]])[0], activeMotion = motion && i === game.active, headProgress = activeMotion ? Math.max(0, Math.min(1, (now - motion.start - motion.delay) / 105)) : 0
+    let feel = activeMotion ? { direction: motion.direction, turn: motion.turn, amount: Math.sin(Math.PI * headProgress) } : {}
+    if (bumpMotion && i === game.active) {
+      const progress = Math.min(1, (now - bumpMotion.start) / 170), amount = Math.sin(Math.PI * progress)
+      display[0][0] += bumpMotion.direction[0] * amount * .13; display[0][1] += bumpMotion.direction[1] * amount * .13
+      feel = { direction: bumpMotion.direction, amount, bump: true }
+      if (progress >= 1) bumpMotion = null
+    }
+    wormBody(display, i, tile, ox, oy, time, feel)
   })
   game.worms.forEach((worm, i) => { const [x, y] = worm[0]; addControl(ox + x * tile, oy + y * tile, tile, tile, () => { game.select(i); wx.setStorageSync('learnedSwitch', 1); sound('select') }) })
   particlesDraw(); ctx.restore()
@@ -174,7 +201,7 @@ function play(time) {
   ctx.fillStyle = C.cream; ctx.font = '800 17px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(`${game.level + 1}. ${game.name}`, 15, HEADER_Y)
   ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(game.message || game.hint, 15, HEADER_Y + 21)
   ctx.textAlign = 'right'; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴`, W - 15, HEADER_Y)
-  button('↶', 14, FOOTER_Y, 42, () => { game.undo(); visualWorms = null; sound('move') }); button('重开', 63, FOOTER_Y, 58, () => { game.load(game.level); visualWorms = null }); button('地图', W - 69, FOOTER_Y, 56, () => { scene = 'map' })
+  button('↶', 14, FOOTER_Y, 42, () => { game.undo(); clearAnimation(); sound('move') }); button('重开', 63, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', W - 69, FOOTER_Y, 56, () => { scene = 'map' })
 
   if (game.level === 0 && game.moves === 0 && !wx.getStorageSync('learnedSwipe')) {
     const pulse = Math.sin(time / 260) * 8
@@ -190,7 +217,7 @@ function play(time) {
     ctx.fillStyle = 'rgba(22,17,21,.84)'; rr(W / 2 - 145, H / 2 - 76, 290, 152, 23)
     ctx.fillStyle = C.cream; ctx.font = '900 27px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('伙伴们找到路了！', W / 2, H / 2 - 34)
     ctx.font = '13px sans-serif'; ctx.fillStyle = C.white; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴`, W / 2, H / 2 - 3)
-    if (game.level < LEVELS.length - 1) button('继续深入 →', W / 2 - 62, H / 2 + 20, 124, () => { game.load(game.level + 1); wx.setStorageSync('caveLevel', game.level); scene = 'play'; transition = 1 })
+    if (game.level < LEVELS.length - 1) button('继续深入 →', W / 2 - 62, H / 2 + 20, 124, () => { game.load(game.level + 1); clearAnimation(); wx.setStorageSync('caveLevel', game.level); scene = 'play'; transition = 1 })
     else button('回到地图', W / 2 - 52, H / 2 + 20, 104, () => { scene = 'map' })
   }
 }
@@ -198,9 +225,17 @@ function play(time) {
 function move(direction, repeating = false) {
   const interaction = game.interaction(direction)
   if (repeating && interaction !== 'move' && interaction !== 'apple') { heldDirection = null; return false }
-  const oldVisual = visualWorms && visualWorms.length === game.worms.length ? copyWorms(visualWorms) : copyWorms(game.worms)
+  if (!visualWorms || visualWorms.length !== game.worms.length) visualWorms = copyWorms(game.worms)
+  const fromById = new Map(), headId = game.worm[0].id, [dx, dy] = DIRS[direction]
+  game.worms.forEach((worm, i) => worm.forEach((segment, j) => fromById.set(segment.id, (visualWorms[i]?.[j] || segment).slice())))
+  const pushed = ['rock', 'egg'].includes(interaction), pushedFrom = [game.worm[0][0] + dx, game.worm[0][1] + dy]
   const ok = game.move(direction)
-  if (ok) visualWorms = game.worms.length === oldVisual.length ? game.worms.map((worm, i) => worm.map((_, j) => oldVisual[i][Math.min(j, oldVisual[i].length - 1)].slice())) : null
+  if (ok) {
+    const from = game.worms.map(worm => worm.map(segment => (fromById.get(segment.id) || segment.slice()).slice())), to = copyWorms(game.worms)
+    visualWorms = copyWorms(from); motion = { from, to, start: Date.now(), delay: pushed ? 50 : 0, direction: [dx, dy], turn: Boolean(lastDirections[headId] && lastDirections[headId] !== direction) }
+    if (pushed) pushMotion = { type: interaction, from: pushedFrom, target: [pushedFrom[0] + dx, pushedFrom[1] + dy], to: key([pushedFrom[0] + dx, pushedFrom[1] + dy]), start: Date.now() }
+    lastDirections[headId] = direction
+  } else bumpMotion = { start: Date.now(), direction: [dx, dy] }
   if (ok) wx.setStorageSync('learnedSwipe', 1)
   sound(ok ? game.event : 'bump'); if (!ok || game.event === 'cut') { shake = game.event === 'cut' ? 11 : 4; try { wx.vibrateShort({ type: game.event === 'cut' ? 'heavy' : 'light' }) } catch (_) {} }
   if (ok) {
