@@ -2,6 +2,12 @@ const { Game, LEVELS, key } = require('./core')
 
 const sys = wx.getSystemInfoSync()
 const W = sys.windowWidth, H = sys.windowHeight, DPR = sys.pixelRatio || 1
+const safe = sys.safeArea || { top: 0, bottom: H }
+let capsule = null
+try { capsule = wx.getMenuButtonBoundingClientRect() } catch (_) {}
+const SAFE_TOP = Math.max(safe.top || 0, capsule ? capsule.bottom : 0)
+const SAFE_BOTTOM = Math.max(0, H - (safe.bottom || H))
+const HEADER_Y = SAFE_TOP + 18, FOOTER_Y = H - SAFE_BOTTOM - 42
 const canvas = wx.createCanvas(), ctx = canvas.getContext('2d')
 canvas.width = W * DPR; canvas.height = H * DPR; ctx.scale(DPR, DPR)
 
@@ -49,15 +55,15 @@ function title() {
   ctx.fillStyle = C.deep; rr(-190, -67, 380, 134, 34)
   ctx.fillStyle = C.cream; ctx.font = `900 ${Math.min(58, W / 9)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('泥 土 小 伙 伴', 0, -6)
   ctx.fillStyle = C.pink; rr(-145, 46, 72, 28, 14); ctx.fillStyle = C.white; ctx.beginPath(); ctx.arc(-84, 60, 9, 0, 7); ctx.fill(); ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(-81, 60, 4, 0, 7); ctx.fill()
-  ctx.restore(); button('开始探索', W / 2 - 65, H - 68, 130, () => { scene = 'map'; wx.setStorageSync('seenIntro', 1); sound('win') }, true)
-  ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('原创身体解谜游戏', W / 2, H - 16)
+  ctx.restore(); button('开始探索', W / 2 - 65, H - SAFE_BOTTOM - 68, 130, () => { scene = 'map'; wx.setStorageSync('seenIntro', 1); sound('win') }, true)
+  ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('原创身体解谜游戏', W / 2, H - SAFE_BOTTOM - 16)
 }
 
 function mapScreen() {
   background('#694e43'); controls = []
-  ctx.fillStyle = C.cream; ctx.font = '900 26px sans-serif'; ctx.textAlign = 'left'; ctx.fillText('地下路线', 22, 34)
+  ctx.fillStyle = C.cream; ctx.font = '900 26px sans-serif'; ctx.textAlign = 'left'; ctx.fillText('地下路线', 22, HEADER_Y)
   const unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length)
-  const cols = 5, gap = 12, size = Math.min(72, (W - 44 - gap * 4) / cols), startX = (W - cols * size - gap * 4) / 2, startY = 58
+  const cols = 5, gap = 12, size = Math.min(72, (W - 44 - gap * 4) / cols), startX = (W - cols * size - gap * 4) / 2, startY = HEADER_Y + 24
   LEVELS.forEach((level, i) => {
     const x = startX + (i % cols) * (size + gap), y = startY + Math.floor(i / cols) * (size + 26)
     ctx.fillStyle = i < unlocked ? C.deep : 'rgba(30,25,28,.35)'; rr(x, y, size, size, 17)
@@ -67,8 +73,8 @@ function mapScreen() {
     if (best) { ctx.fillStyle = 'rgba(255,255,255,.65)'; ctx.font = '9px sans-serif'; ctx.fillText(`${best}步`, x + size / 2, y + size - 6) }
     if (i < unlocked) addControl(x, y, size, size, () => { game.load(i); scene = 'play'; transition = 1; sound('select') })
   })
-  button('返回标题', 18, H - 48, 90, () => { scene = 'title' })
-  button(muted ? '声音：关' : '声音：开', W - 104, H - 48, 86, () => { muted = !muted; wx.setStorageSync('muted', muted); if (!muted) sound('select') })
+  button('返回标题', 18, FOOTER_Y, 90, () => { scene = 'title' })
+  button(muted ? '声音：关' : '声音：开', W - 104, FOOTER_Y, 86, () => { muted = !muted; wx.setStorageSync('muted', muted); if (!muted) sound('select') })
 }
 
 function object(type, x, y, s, t) {
@@ -145,7 +151,7 @@ function burst(x, y, color, count = 12) { for (let i = 0; i < count; i++) { cons
 function play(time) {
   controls = []; ctx.save(); if (shake > 0) { ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake *= .82 }
   background(game.chapter === '苔藓庭院' ? '#65735b' : game.chapter === '更深的家' ? '#584158' : C.dirt)
-  const top = 55, bottom = 49, tile = Math.floor(Math.min((W - 24) / game.w, (H - top - bottom) / game.h)), ox = Math.floor((W - game.w * tile) / 2), oy = top + Math.floor((H - top - bottom - game.h * tile) / 2)
+  const top = HEADER_Y + 31, bottom = 49 + SAFE_BOTTOM, tile = Math.floor(Math.min((W - 24) / game.w, (H - top - bottom) / game.h)), ox = Math.floor((W - game.w * tile) / 2), oy = top + Math.floor((H - top - bottom - game.h * tile) / 2)
   ctx.fillStyle = C.tunnel; for (let y = 0; y < game.h; y++) for (let x = 0; x < game.w; x++) if (!game.walls.has(key([x, y]))) {
     rr(ox + x * tile - 1, oy + y * tile - 1, tile + 2, tile + 2, tile * .19)
     ctx.fillStyle = 'rgba(255,255,255,.018)'; ctx.beginPath(); ctx.arc(ox + (x + .25) * tile, oy + (y + .28) * tile, Math.max(1, tile * .025), 0, 7); ctx.fill(); ctx.fillStyle = C.tunnel
@@ -165,10 +171,10 @@ function play(time) {
   game.worms.forEach((worm, i) => { const [x, y] = worm[0]; addControl(ox + x * tile, oy + y * tile, tile, tile, () => { game.select(i); wx.setStorageSync('learnedSwitch', 1); sound('select') }) })
   particlesDraw(); ctx.restore()
 
-  ctx.fillStyle = C.cream; ctx.font = '800 17px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(`${game.level + 1}. ${game.name}`, 15, 22)
-  ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(game.message || game.hint, 15, 43)
-  ctx.textAlign = 'right'; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴`, W - 15, 22)
-  button('↶', 14, H - 42, 42, () => { game.undo(); visualWorms = null; sound('move') }); button('重开', 63, H - 42, 58, () => { game.load(game.level); visualWorms = null }); button('地图', W - 69, H - 42, 56, () => { scene = 'map' })
+  ctx.fillStyle = C.cream; ctx.font = '800 17px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(`${game.level + 1}. ${game.name}`, 15, HEADER_Y)
+  ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(game.message || game.hint, 15, HEADER_Y + 21)
+  ctx.textAlign = 'right'; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴`, W - 15, HEADER_Y)
+  button('↶', 14, FOOTER_Y, 42, () => { game.undo(); visualWorms = null; sound('move') }); button('重开', 63, FOOTER_Y, 58, () => { game.load(game.level); visualWorms = null }); button('地图', W - 69, FOOTER_Y, 56, () => { scene = 'map' })
 
   if (game.level === 0 && game.moves === 0 && !wx.getStorageSync('learnedSwipe')) {
     const pulse = Math.sin(time / 260) * 8
@@ -176,7 +182,7 @@ function play(time) {
     ctx.fillStyle = C.cream; ctx.font = '700 13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('向任意方向滑动', W / 2, H / 2 + 30)
   }
   if (game.worms.length > 1 && !wx.getStorageSync('learnedSwitch')) {
-    ctx.fillStyle = 'rgba(20,15,19,.82)'; rr(W / 2 - 118, H - 89, 236, 34, 17); ctx.fillStyle = C.cream; ctx.font = '700 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('轻触伙伴的脑袋可以切换控制', W / 2, H - 72)
+    ctx.fillStyle = 'rgba(20,15,19,.82)'; rr(W / 2 - 118, FOOTER_Y - 47, 236, 34, 17); ctx.fillStyle = C.cream; ctx.font = '700 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('轻触伙伴的脑袋可以切换控制', W / 2, FOOTER_Y - 30)
   }
 
   if (transition > 0) { ctx.fillStyle = `rgba(20,15,19,${transition})`; ctx.fillRect(0, 0, W, H); transition = Math.max(0, transition - .045) }
@@ -217,7 +223,7 @@ function dragDirection(t) {
 }
 wx.onTouchStart(e => { const t = e.touches[0]; touch = { x: t.clientX, y: t.clientY, moved: false }; heldDirection = null })
 wx.onTouchMove(e => {
-  if (!touch || scene !== 'play' || touch.y > H - 52) return
+  if (!touch || scene !== 'play' || touch.y > FOOTER_Y - 10) return
   const direction = dragDirection(e.touches[0])
   if (!direction || direction === heldDirection) return
   touch.moved = true; heldDirection = direction
