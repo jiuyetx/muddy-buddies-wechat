@@ -198,7 +198,7 @@ function play(time) {
     object(type, ox + x * tile + jitter, oy + y * tile, tile, time, type === 'button' && (game.rocks.has(p) || occupied.has(p)))
   })
   each(game.buttons, 'button'); each(game.nests, 'nest'); each(game.scissors, 'scissors')
-  game.doors.forEach(p => { const [x, y] = p.split(',').map(Number), px = ox + x * tile, py = oy + y * tile; ctx.shadowColor = game.doorsOpen ? C.yellow : 'transparent'; ctx.shadowBlur = tile * .35; ctx.fillStyle = game.doorsOpen ? 'rgba(244,206,76,.42)' : C.cream; rr(px + tile * .35, py, tile * .3, tile, tile * .09); ctx.shadowColor = 'transparent' })
+  game.doors.forEach(p => { const [x, y] = p.split(',').map(Number), px = ox + x * tile, py = oy + y * tile, open = game.doorOpen([x, y]); ctx.shadowColor = open ? C.yellow : 'transparent'; ctx.shadowBlur = tile * .35; ctx.fillStyle = open ? 'rgba(244,206,76,.42)' : C.cream; rr(px + tile * .35, py, tile * .3, tile, tile * .09); ctx.shadowColor = 'transparent' })
   if (game.exit) object('exit', ox + game.exit[0] * tile, oy + game.exit[1] * tile, tile, time, game.won)
   each(game.apples, 'apple'); each(game.rocks, 'rock'); each(game.eggs, 'egg')
   if (pushMotion) {

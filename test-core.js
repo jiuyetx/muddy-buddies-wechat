@@ -1,6 +1,9 @@
 const assert = require('assert')
-const { Game } = require('./core')
+const { Game, LEVELS } = require('./core')
 const positions = worm => worm.map(segment => segment.slice())
+
+assert(LEVELS.every(level => level.id && level.width && level.height && level.objectives.length && Array.isArray(level.entities) && Array.isArray(level.links)))
+assert(!require('fs').readFileSync(require.resolve('./core'), 'utf8').includes('levelId ==='))
 
 const basic = new Game(0)
 assert.equal(basic.interaction('right'), 'move')

@@ -1,6 +1,14 @@
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }
 const key = ([x, y]) => `${x},${y}`
 const copy = value => JSON.parse(JSON.stringify(value))
+const LEVELS = require('./levels')
+
+const TILE_TYPES = {
+  '#': ['walls', 'WALL', ['BlockingComponent']], A: ['apples', 'APPLE', ['CollectibleComponent']], R: ['rocks', 'ROCK', ['CarryableComponent', 'BlockingComponent']],
+  B: ['buttons', 'PRESSURE', ['TriggerComponent', 'PressurePlateComponent']], D: ['doors', 'DOOR', ['DoorComponent', 'BlockingComponent']],
+  S: ['scissors', 'SCISSORS', ['SplitPointComponent']], N: ['nests', 'NEST', ['TriggerComponent']], E: ['eggs', 'EGG', ['CarryableComponent', 'FragileComponent']],
+  X: ['exit', 'EXIT', ['ExitComponent']]
+}
 
 class Segment {
   constructor(x, y, id, state = {}) { this.x = x; this.y = y; this.id = id; this.state = copy(state || {}); this.previous = null; this.next = null }
@@ -11,47 +19,13 @@ class Segment {
   [Symbol.iterator]() { return [this.x, this.y][Symbol.iterator]() }
 }
 
-// 每关只描述玩法必需数据；形状、美术和解法均为原创。
-const LEVELS = [
-  { name: '醒来', chapter: '泥土之下', hint: '滑动屏幕，让小蠕虫吃掉果子后回家', map: [
-    '############', '#..........#', '#..A.......#', '#..........#', '#.......X..#', '############'
-  ], worms: [[[2, 4], [2, 3], [3, 3]]] },
-  { name: '绕一个弯', chapter: '泥土之下', hint: '身体不能穿过自己，给尾巴留点空间', map: [
-    '#############', '#.....#.....#', '#.A...#...X.#', '#.....#.....#', '#...........#', '#############'
-  ], worms: [[[2, 4], [2, 3], [3, 3], [4, 3]]] },
-  { name: '沉石', chapter: '泥土之下', hint: '石头只能推，不能拉', map: [
-    '##############', '#............#', '#....R.......#', '#............#', '#.........X..#', '##############'
-  ], worms: [[[2, 2], [2, 3], [3, 3]]] },
-  { name: '黄按钮', chapter: '旧根深处', hint: '让石头压住按钮，白门会打开', map: [
-    '###############', '#......#......#', '#...R..D...X..#', '#...B..#......#', '#......#......#', '#.............#', '###############'
-  ], worms: [[[2, 2], [2, 3], [2, 4]]] },
-  { name: '咔嚓', chapter: '旧根深处', hint: '身体经过剪刀时会分成两个伙伴', map: [
-    '###############', '#.............#', '#.....S.......#', '#.........X...#', '#.............#', '###############'
-  ], worms: [[[2, 2], [2, 3], [3, 3], [4, 3], [5, 3], [6, 3]]] },
-  { name: '两个脑袋', chapter: '旧根深处', hint: '轻触伙伴切换控制；两个按钮要同时压住', map: [
-    '################', '#......#.......#', '#..B...D....X..#', '#......#.......#', '#..B...#.......#', '#..............#', '################'
-  ], worms: [[[2, 3], [2, 2]], [[4, 4], [4, 3]]] },
-  { name: '轻拿轻放', chapter: '苔藓庭院', hint: '把蛋推入草窝，再进入心形洞口', map: [
-    '################', '#..............#', '#...E......N...#', '#..............#', '#...........X..#', '#..............#', '################'
-  ], worms: [[[2, 2], [2, 3], [3, 3]]] },
-  { name: '分工', chapter: '苔藓庭院', hint: '剪开身体，让伙伴看守按钮', map: [
-    '#################', '#.......#.......#', '#...S...D....X..#', '#.......#.......#', '#...B...#.......#', '#...............#', '#################'
-  ], worms: [[[2, 2], [2, 3], [3, 3], [4, 3], [5, 3], [6, 3]]] },
-  { name: '果园机关', chapter: '苔藓庭院', hint: '长度既是奖励，也是限制', map: [
-    '#################', '#..A....#.......#', '#.......#...R...#', '#.......D.......#', '#..A....#...B...#', '#.......#....X..#', '#...............#', '#################'
-  ], worms: [[[2, 5], [2, 4], [3, 4]]] },
-  { name: '归巢', chapter: '更深的家', hint: '照顾好蛋，也照顾好每一个伙伴', map: [
-    '##################', '#........#.......#', '#..E.....D....N..#', '#........#.......#', '#..S.....#..B....#', '#........#.....X.#', '#................#', '##################'
-  ], worms: [[[2, 5], [3, 5], [4, 5], [5, 5], [6, 5], [6, 4]]] }
-]
-
 function parseLevel(source) {
-  const state = { walls: [], apples: [], rocks: [], buttons: [], doors: [], scissors: [], nests: [], eggs: [], exit: null }
-  source.map.forEach((row, y) => [...row].forEach((cell, x) => {
-    const p = key([x, y])
-    const names = { '#': 'walls', A: 'apples', R: 'rocks', B: 'buttons', D: 'doors', S: 'scissors', N: 'nests', E: 'eggs' }
-    if (names[cell]) state[names[cell]].push(p)
-    if (cell === 'X') state.exit = [x, y]
+  const state = { walls: [], apples: [], rocks: [], buttons: [], doors: [], scissors: [], nests: [], eggs: [], exit: null, entityById: new Map(), entityAt: new Map() }
+  source.tiles.forEach((row, y) => [...row].forEach((cell, x) => {
+    const definition = TILE_TYPES[cell]; if (!definition) return
+    const [collection, type, components] = definition, position = [x, y], id = `${type.toLowerCase()}_${x}_${y}`, entity = { id, type, position, components }
+    state.entityById.set(id, entity); state.entityAt.set(key(position), entity)
+    if (collection === 'exit') state.exit = position; else state[collection].push(key(position))
   }))
   return state
 }
@@ -63,13 +37,17 @@ class Game {
     const source = LEVELS[index]
     const parsed = parseLevel(source)
     this.level = index
-    this.w = Math.max(...source.map.map(row => row.length))
-    this.h = source.map.length
+    this.id = source.id
+    this.w = source.width
+    this.h = source.height
     this.name = source.name
-    this.chapter = source.chapter
+    this.chapter = source.chapterName
     this.hint = source.hint
+    this.objectives = copy(source.objectives)
+    this.links = copy(source.links)
+    this.maxUndoHint = source.maxUndoHint
     this.nextSegmentId = 1
-    this.worms = source.worms.map(worm => this.makeWorm(worm))
+    this.worms = source.entities.filter(entity => entity.type === 'WORM').map(entity => this.makeWorm(entity.segments))
     this.relink()
     this.active = 0
     Object.keys(parsed).forEach(name => { this[name] = Array.isArray(parsed[name]) && name !== 'exit' ? new Set(parsed[name]) : parsed[name] })
@@ -84,9 +62,17 @@ class Game {
 
   get worm() { return this.worms[this.active] }
   set worm(value) { this.worms[this.active] = this.makeWorm(value); this.relink() }
+  pressureActive(entityId) {
+    const entity = this.entityById.get(entityId); if (!entity) return false
+    const occupied = new Set(this.worms.flat().map(key)), position = key(entity.position)
+    return occupied.has(position) || this.rocks.has(position)
+  }
+  doorOpen(position) {
+    const door = this.entityAt.get(key(position)), incoming = this.links.filter(link => link.target === door?.id)
+    return incoming.length > 0 && incoming.every(link => link.mode === 'WHILE_ACTIVE' && this.pressureActive(link.source))
+  }
   get doorsOpen() {
-    const occupied = new Set(this.worms.flat().map(key))
-    return this.buttons.size > 0 && [...this.buttons].every(p => this.rocks.has(p) || occupied.has(p))
+    return this.doors.size > 0 && [...this.doors].every(position => this.doorOpen(position.split(',').map(Number)))
   }
 
   snapshot() {
@@ -137,7 +123,15 @@ class Game {
     const target = key(p)
     const bodies = new Set(this.worms.flat().map(key))
     if (movingTail) bodies.delete(key(movingTail))
-    return this.walls.has(target) || bodies.has(target) || this.rocks.has(target) || this.eggs.has(target) || (this.doors.has(target) && !this.doorsOpen)
+    return this.walls.has(target) || bodies.has(target) || this.rocks.has(target) || this.eggs.has(target) || (this.doors.has(target) && !this.doorOpen(p))
+  }
+
+  objectiveComplete(objective, target) {
+    if (objective.type === 'COLLECT_ALL_APPLES') return this.apples.size === 0
+    if (objective.type === 'DELIVER_ALL_EGGS') return this.eggs.size === 0
+    if (objective.type === 'REACH_EXIT') return this.exit && target === key(this.exit)
+    if (objective.type === 'ALL_CHARACTERS_EXIT') return this.exit && this.worms.every(worm => key(worm[0]) === key(this.exit))
+    return false
   }
 
   interaction(direction) {
@@ -191,9 +185,8 @@ class Game {
     this.buttonChanged = doorsWereOpen !== this.doorsOpen
     if (this.buttonChanged && !this.message) this.message = this.doorsOpen ? '咔哒！门打开了' : '按钮弹起来了'
 
-    const eggReady = this.nests.size === 0 || this.eggDelivered
-    if (this.exit && target === key(this.exit) && eggReady && this.apples.size === 0) { this.won = true; this.event = 'win' }
-    else if (this.exit && target === key(this.exit) && !eggReady) this.message = '还有一枚蛋没有回家'
+    if (this.objectives.every(objective => this.objectiveComplete(objective, target))) { this.won = true; this.event = 'win' }
+    else if (this.exit && target === key(this.exit) && this.eggs.size) this.message = '还有一枚蛋没有回家'
     else if (this.exit && target === key(this.exit) && this.apples.size) this.message = '还有果子没有吃完'
     return true
   }
