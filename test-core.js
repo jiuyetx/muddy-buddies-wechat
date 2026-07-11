@@ -1,9 +1,13 @@
 const assert = require('assert')
 const { Game, LEVELS } = require('./core')
+const { resolveSwipe } = require('./input')
 const positions = worm => worm.map(segment => segment.slice())
 
 assert(LEVELS.every(level => level.id && level.width && level.height && level.objectives.length && Array.isArray(level.entities) && Array.isArray(level.links)))
 assert(!require('fs').readFileSync(require.resolve('./core'), 'utf8').includes('levelId ==='))
+assert.equal(resolveSwipe(30, 3, 800), 'right')
+assert.equal(resolveSwipe(30, 27, 800), null)
+assert.equal(resolveSwipe(10, 2, 800), null)
 
 const basic = new Game(0)
 assert.equal(basic.interaction('right'), 'move')

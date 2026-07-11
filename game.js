@@ -1,4 +1,5 @@
 const { Game, LEVELS, DIRS, key } = require('./core')
+const { resolveSwipe } = require('./input')
 
 const sys = wx.getSystemInfoSync()
 const W = sys.windowWidth, H = sys.windowHeight, DPR = sys.pixelRatio || 1
@@ -14,11 +15,12 @@ canvas.width = W * DPR; canvas.height = H * DPR; ctx.scale(DPR, DPR)
 const C = { dirt: '#934b3f', deep: '#21191e', tunnel: '#30272b', ridge: '#64342f', pink: '#f29aae', rose: '#d7617c', cream: '#f7f0ce', green: '#93be72', yellow: '#f4ce4c', ink: '#191419', white: '#fffdf5' }
 let game = new Game(Math.min(Number(wx.getStorageSync('caveLevel')) || 0, LEVELS.length - 1))
 let scene = wx.getStorageSync('seenIntro') ? 'map' : 'title'
-let touch = null, controls = [], transition = 1, shake = 0, particles = [], heldDirection = null, repeatAt = 0, visualWorms = null
+let touch = null, controls = [], transition = 1, shake = 0, particles = [], visualWorms = null, inputQueue = []
 let motion = null, bumpMotion = null, pushMotion = null, failedMotion = null, lastDirections = {}
 let lastActionAt = Date.now()
 let audio
 let muted = Boolean(wx.getStorageSync('muted'))
+let directionButtons = Boolean(wx.getStorageSync('directionButtons'))
 
 function rr(x, y, w, h, r) {
   r = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2)); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
@@ -39,11 +41,11 @@ function sound(kind) {
   } catch (_) {}
 }
 
-function addControl(x, y, w, h, action) { controls.push({ x, y, w, h, action }) }
+function addControl(x, y, w, h, action, blockSwipe = false) { controls.push({ x, y, w, h, action, blockSwipe }) }
 function button(label, x, y, w, action, accent = false) {
   ctx.fillStyle = accent ? C.cream : 'rgba(25,20,24,.72)'; rr(x, y, w, 38, 19)
   ctx.fillStyle = accent ? C.ink : C.cream; ctx.font = '700 14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x + w / 2, y + 19)
-  addControl(x, y, w, 38, action)
+  addControl(x, y, w, 38, action, true)
 }
 
 function background(color = C.dirt) {
@@ -76,6 +78,7 @@ function mapScreen() {
     if (i < unlocked) addControl(x, y, size, size, () => { game.load(i); clearAnimation(); scene = 'play'; transition = 1; sound('select') })
   })
   button('返回标题', 18, FOOTER_Y, 90, () => { scene = 'title' })
+  button(directionButtons ? '辅助键：开' : '辅助键：关', W / 2 - 48, FOOTER_Y, 96, () => { directionButtons = !directionButtons; wx.setStorageSync('directionButtons', directionButtons); sound('select') })
   button(muted ? '声音：关' : '声音：开', W - 104, FOOTER_Y, 86, () => { muted = !muted; wx.setStorageSync('muted', muted); if (!muted) sound('select') })
 }
 
@@ -169,7 +172,7 @@ function particlesDraw() {
 
 function burst(x, y, color, count = 12) { for (let i = 0; i < count; i++) { const a = Math.random() * 7, speed = .5 + Math.random() * 2; particles.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, size: 1 + Math.random() * 3, color, life: 22 }) } }
 function ease(t) { return 1 - Math.pow(1 - Math.max(0, Math.min(1, t)), 3) }
-function clearAnimation() { visualWorms = null; motion = null; bumpMotion = null; pushMotion = null; failedMotion = null; lastDirections = {}; lastActionAt = Date.now() }
+function clearAnimation() { visualWorms = null; motion = null; bumpMotion = null; pushMotion = null; failedMotion = null; lastDirections = {}; inputQueue = []; lastActionAt = Date.now() }
 function characterFeel(worm, index, now) {
   if (game.won) return { celebrate: true }
   if (now - lastActionAt < 900) return {}
@@ -210,7 +213,7 @@ function play(time) {
   if (motion) {
     let finished = true
     motion.to.forEach((worm, i) => worm.forEach((target, j) => {
-      const progress = ease((now - motion.start - motion.delay - j * 18) / 105)
+      const progress = ease((now - motion.start - motion.delay - Math.min(j * 18, 100)) / 105)
       visualWorms[i][j][0] = motion.from[i][j][0] + (target[0] - motion.from[i][j][0]) * progress
       visualWorms[i][j][1] = motion.from[i][j][1] + (target[1] - motion.from[i][j][1]) * progress
       if (progress < 1) finished = false
@@ -231,13 +234,14 @@ function play(time) {
     }
     wormBody(display, i, tile, ox, oy, time, feel)
   })
-  game.worms.forEach((worm, i) => { const [x, y] = worm[0]; addControl(ox + x * tile, oy + y * tile, tile, tile, () => { game.select(i); wx.setStorageSync('learnedSwitch', 1); sound('select') }) })
+  game.worms.forEach((worm, i) => { const [x, y] = worm[0]; addControl(ox + x * tile, oy + y * tile, tile, tile, () => { inputQueue = []; game.select(i); wx.setStorageSync('learnedSwitch', 1); sound('select') }) })
   particlesDraw(); ctx.restore()
 
   ctx.fillStyle = C.cream; ctx.font = '800 17px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(`${game.level + 1}. ${game.name}`, 15, HEADER_Y)
   ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(game.message || game.hint, 15, HEADER_Y + 21)
   ctx.textAlign = 'right'; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴`, W - 15, HEADER_Y)
   button('↶', 14, FOOTER_Y, 42, () => { game.undo(); clearAnimation(); sound('move') }); button('重开', 63, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', W - 69, FOOTER_Y, 56, () => { scene = 'map' })
+  if (directionButtons) { const directions = [['←','left'], ['↑','up'], ['↓','down'], ['→','right']], start = W / 2 - 81; directions.forEach(([label, direction], i) => button(label, start + i * 42, FOOTER_Y, 36, () => enqueue(direction))) }
 
   if (game.level === 0 && game.moves === 0 && !wx.getStorageSync('learnedSwipe')) {
     const pulse = Math.sin(time / 260) * 8
@@ -258,10 +262,9 @@ function play(time) {
   }
 }
 
-function move(direction, repeating = false) {
+function move(direction) {
   lastActionAt = Date.now()
   const interaction = game.interaction(direction)
-  if (repeating && interaction !== 'move' && interaction !== 'apple') { heldDirection = null; return false }
   if (!visualWorms || visualWorms.length !== game.worms.length) visualWorms = copyWorms(game.worms)
   const fromById = new Map(), headId = game.worm[0].id, [dx, dy] = DIRS[direction]
   game.worms.forEach((worm, i) => worm.forEach((segment, j) => fromById.set(segment.id, (visualWorms[i]?.[j] || segment).slice())))
@@ -269,10 +272,11 @@ function move(direction, repeating = false) {
   const ok = game.move(direction)
   if (ok) {
     const from = game.worms.map(worm => worm.map(segment => (fromById.get(segment.id) || segment.slice()).slice())), to = copyWorms(game.worms)
-    visualWorms = copyWorms(from); motion = { from, to, start: Date.now(), delay: pushed ? 50 : 0, direction: [dx, dy], turn: Boolean(lastDirections[headId] && lastDirections[headId] !== direction) }
+    const turn = Boolean(lastDirections[headId] && lastDirections[headId] !== direction)
+    visualWorms = copyWorms(from); motion = { from, to, start: Date.now(), delay: pushed ? 50 : turn ? 45 : 0, direction: [dx, dy], turn }
     if (pushed) pushMotion = { type: interaction, from: pushedFrom, target: [pushedFrom[0] + dx, pushedFrom[1] + dy], to: key([pushedFrom[0] + dx, pushedFrom[1] + dy]), start: Date.now() }
     lastDirections[headId] = direction
-  } else { bumpMotion = { start: Date.now(), direction: [dx, dy] }; failedMotion = pushed ? { start: Date.now(), type: interaction, position: key(pushedFrom) } : null }
+  } else { bumpMotion = { start: Date.now(), direction: [dx, dy] }; failedMotion = pushed ? { start: Date.now(), type: interaction, position: key(pushedFrom) } : null; if (pushed) inputQueue = [] }
   if (ok) wx.setStorageSync('learnedSwipe', 1)
   sound(ok ? game.event : pushed ? 'fail' : 'bump'); if (ok && game.buttonChanged) sound('button'); if (!ok || game.event === 'cut') { shake = game.event === 'cut' ? 11 : 4; try { wx.vibrateShort({ type: game.event === 'cut' ? 'heavy' : 'light' }) } catch (_) {} }
   if (ok) {
@@ -281,37 +285,27 @@ function move(direction, repeating = false) {
       const unlocked = Math.max(Number(wx.getStorageSync('unlocked')) || 1, Math.min(LEVELS.length, game.level + 2)); wx.setStorageSync('unlocked', unlocked)
       const best = Number(wx.getStorageSync(`best_${game.level}`)) || Infinity; if (game.moves < best) wx.setStorageSync(`best_${game.level}`, game.moves)
     }
-    if (['cut', 'win', 'nest'].includes(game.event)) heldDirection = null
+    if (['cut', 'win', 'nest'].includes(game.event)) inputQueue = []
   }
   return ok
 }
 
 function tap(x, y) { const c = [...controls].reverse().find(v => x >= v.x && x <= v.x + v.w && y >= v.y && y <= v.y + v.h); if (c) c.action() }
 function copyWorms(worms) { return worms.map(worm => worm.map(part => part.slice())) }
-function dragDirection(t) {
-  const dx = t.clientX - touch.x, dy = t.clientY - touch.y
-  if (Math.hypot(dx, dy) < 18) return null
-  return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')
+function swipeDirection(t) {
+  return resolveSwipe(t.clientX - touch.x, t.clientY - touch.y, W)
 }
-wx.onTouchStart(e => { const t = e.touches[0]; lastActionAt = Date.now(); touch = { x: t.clientX, y: t.clientY, moved: false }; heldDirection = null })
-wx.onTouchMove(e => {
-  if (!touch || scene !== 'play' || touch.y > FOOTER_Y - 10) return
-  const direction = dragDirection(e.touches[0])
-  if (!direction || direction === heldDirection) return
-  touch.moved = true; heldDirection = direction
-  const interaction = game.interaction(direction)
-  move(direction)
-  touch.x = e.touches[0].clientX; touch.y = e.touches[0].clientY
-  repeatAt = Date.now() + 260
-  if (!['move', 'apple'].includes(interaction)) heldDirection = null
-})
+function enqueue(direction) { if (scene === 'play' && inputQueue.length < 2) inputQueue.push(direction) }
+function consumeInput() { if (!motion && !pushMotion && !bumpMotion && inputQueue.length && !game.won) move(inputQueue.shift()) }
+wx.onTouchStart(e => { const t = e.touches[0], ui = controls.some(c => c.blockSwipe && t.clientX >= c.x && t.clientX <= c.x + c.w && t.clientY >= c.y && t.clientY <= c.y + c.h); lastActionAt = Date.now(); touch = { x: t.clientX, y: t.clientY, ui } })
 wx.onTouchEnd(e => {
   if (!touch) return
   const t = e.changedTouches[0]
-  if (!touch.moved) { const direction = scene === 'play' ? dragDirection(t) : null; if (direction) move(direction); else tap(t.clientX, t.clientY) }
-  touch = null; heldDirection = null
+  const distance = Math.hypot(t.clientX - touch.x, t.clientY - touch.y), direction = !touch.ui && scene === 'play' ? swipeDirection(t) : null
+  if (direction) enqueue(direction); else if (touch.ui || distance < 14) tap(t.clientX, t.clientY)
+  touch = null
 })
-wx.onTouchCancel(() => { touch = null; heldDirection = null })
+wx.onTouchCancel(() => { touch = null })
 
 try {
   wx.setKeepScreenOn({ keepScreenOn: true })
@@ -321,13 +315,12 @@ try {
   wx.onShow(() => { if (audio && audio.state === 'suspended') audio.resume() })
   if (wx.onKeyDown) wx.onKeyDown(({ key }) => {
     const keys = { ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down', ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right' }
-    if (scene === 'play' && keys[key]) move(keys[key])
+    if (scene === 'play' && keys[key]) enqueue(keys[key])
     if (scene === 'play' && (key === 'z' || key === 'Backspace')) game.undo()
   })
 } catch (_) {}
 
 function loop(time) {
-  if (heldDirection && Date.now() >= repeatAt) { move(heldDirection, true); repeatAt = Date.now() + 175 }
-  if (scene === 'title') title(); else if (scene === 'map') mapScreen(); else play(time); requestAnimationFrame(loop)
+  if (scene === 'title') title(); else if (scene === 'map') mapScreen(); else { play(time); consumeInput() } requestAnimationFrame(loop)
 }
 loop(0)
