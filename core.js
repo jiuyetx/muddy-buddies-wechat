@@ -2,6 +2,15 @@ const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }
 const key = ([x, y]) => `${x},${y}`
 const copy = value => JSON.parse(JSON.stringify(value))
 
+class Segment {
+  constructor(x, y, id, state = {}) { this.x = x; this.y = y; this.id = id; this.state = copy(state || {}); this.previous = null; this.next = null }
+  get 0() { return this.x }
+  get 1() { return this.y }
+  moveTo([x, y]) { this.x = x; this.y = y }
+  slice() { return [this.x, this.y] }
+  [Symbol.iterator]() { return [this.x, this.y][Symbol.iterator]() }
+}
+
 // 每关只描述玩法必需数据；形状、美术和解法均为原创。
 const LEVELS = [
   { name: '醒来', chapter: '泥土之下', hint: '滑动屏幕，让小蠕虫吃掉果子后回家', map: [
@@ -59,7 +68,9 @@ class Game {
     this.name = source.name
     this.chapter = source.chapter
     this.hint = source.hint
-    this.worms = copy(source.worms)
+    this.nextSegmentId = 1
+    this.worms = source.worms.map(worm => this.makeWorm(worm))
+    this.relink()
     this.active = 0
     Object.keys(parsed).forEach(name => { this[name] = Array.isArray(parsed[name]) && name !== 'exit' ? new Set(parsed[name]) : parsed[name] })
     this.history = []
@@ -71,18 +82,19 @@ class Game {
   }
 
   get worm() { return this.worms[this.active] }
-  set worm(value) { this.worms[this.active] = value }
+  set worm(value) { this.worms[this.active] = this.makeWorm(value); this.relink() }
   get doorsOpen() {
     const occupied = new Set(this.worms.flat().map(key))
     return this.buttons.size > 0 && [...this.buttons].every(p => this.rocks.has(p) || occupied.has(p))
   }
 
   snapshot() {
-    return { worms: copy(this.worms), active: this.active, apples: [...this.apples], rocks: [...this.rocks], eggs: [...this.eggs], moves: this.moves, won: this.won, eggDelivered: this.eggDelivered }
+    const worms = this.worms.map(worm => worm.map(({ x, y, id, state }) => ({ x, y, id, state: copy(state) })))
+    return { worms, nextSegmentId: this.nextSegmentId, active: this.active, apples: [...this.apples], rocks: [...this.rocks], eggs: [...this.eggs], moves: this.moves, won: this.won, eggDelivered: this.eggDelivered }
   }
 
   restore(state) {
-    this.worms = state.worms; this.active = state.active
+    this.nextSegmentId = state.nextSegmentId; this.worms = state.worms.map(worm => this.makeWorm(worm)); this.active = state.active; this.relink()
     this.apples = new Set(state.apples); this.rocks = new Set(state.rocks); this.eggs = new Set(state.eggs)
     this.moves = state.moves; this.won = state.won; this.eggDelivered = state.eggDelivered
     this.message = ''; this.event = 'undo'
@@ -91,13 +103,30 @@ class Game {
   undo() { if (this.history.length) { this.restore(this.history.pop()); return true } return false }
   select(index) { if (index >= 0 && index < this.worms.length) { this.active = index; this.event = 'select'; return true } return false }
 
+  makeWorm(parts) {
+    return parts.map(part => part instanceof Segment ? part : new Segment(part.x ?? part[0], part.y ?? part[1], part.id || `segment-${this.nextSegmentId++}`, part.state))
+  }
+
+  relink() {
+    this.worms.forEach(worm => worm.forEach((segment, i) => { segment.previous = worm[i - 1]?.id || null; segment.next = worm[i + 1]?.id || null }))
+  }
+
+  segmentAt(position) { return this.worms.flat().find(segment => key(segment) === key(position)) || null }
+  setSegmentState(id, state) { const segment = this.worms.flat().find(part => part.id === id); if (!segment) return false; Object.assign(segment.state, state); return true }
+
+  cut(wormIndex, connectionIndex) {
+    const worm = this.worms[wormIndex]
+    if (!worm || connectionIndex < 1 || connectionIndex >= worm.length) return false
+    this.worms.splice(wormIndex, 1, worm.slice(0, connectionIndex), worm.slice(connectionIndex).reverse())
+    this.relink()
+    return true
+  }
+
   splitAtScissors() {
     const worm = this.worm
     const cut = worm.findIndex((part, i) => i >= 2 && i <= worm.length - 2 && this.scissors.has(key(part)))
     if (cut < 0) return false
-    const front = worm.slice(0, cut)
-    const back = worm.slice(cut).reverse()
-    this.worms.splice(this.active, 1, front, back)
+    this.cut(this.active, cut)
     this.message = '咔嚓！现在有两个伙伴了'
     this.event = 'cut'
     return true
@@ -148,9 +177,12 @@ class Game {
       else this.event = 'push'
     } else this.event = grows ? 'apple' : 'move'
 
-    this.worm.unshift(next)
+    const oldPositions = this.worm.map(segment => segment.slice())
+    if (grows) this.worm.push(new Segment(...oldPositions[oldPositions.length - 1], `segment-${this.nextSegmentId++}`))
+    for (let i = this.worm.length - 1; i > 0; i--) this.worm[i].moveTo(oldPositions[Math.min(i - 1, oldPositions.length - 1)])
+    this.worm[0].moveTo(next)
+    this.relink()
     if (grows) { this.apples.delete(target); this.message = '嚼嚼！长了一截' }
-    else this.worm.pop()
     this.moves++
     this.splitAtScissors()
 
@@ -162,4 +194,4 @@ class Game {
   }
 }
 
-module.exports = { Game, LEVELS, DIRS, key }
+module.exports = { Game, Segment, LEVELS, DIRS, key }
