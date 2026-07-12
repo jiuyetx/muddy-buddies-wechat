@@ -134,10 +134,26 @@ function object(type, x, y, s, t, active = false) {
   ctx.restore()
 }
 
+function drawSmoothBody(worm, tile, ox, oy) {
+  const world = worm.map(p => [ox + (p[0] + .5) * tile, oy + (p[1] + .5) * tile]), path = [world[0]]
+  for (let i = 1; i < world.length; i++) {
+    const from = path[path.length - 1], to = world[i], dx = to[0] - from[0], dy = to[1] - from[1]
+    if (Math.abs(dx) > .5 && Math.abs(dy) > .5) path.push(Math.abs(dx) > Math.abs(dy) ? [to[0], from[1]] : [from[0], to[1]])
+    path.push(to)
+  }
+  ctx.beginPath(); ctx.moveTo(path[0][0], path[0][1])
+  for (let i = 1; i < path.length - 1; i++) {
+    const before = path[i - 1], point = path[i], after = path[i + 1], ax = point[0] - before[0], ay = point[1] - before[1], bx = after[0] - point[0], by = after[1] - point[1], al = Math.hypot(ax, ay), bl = Math.hypot(bx, by)
+    if (!al || !bl || Math.abs(ax * by - ay * bx) < .5) { ctx.lineTo(point[0], point[1]); continue }
+    const radius = Math.min(tile * .22, al / 2, bl / 2)
+    ctx.lineTo(point[0] - ax / al * radius, point[1] - ay / al * radius); ctx.quadraticCurveTo(point[0], point[1], point[0] + bx / bl * radius, point[1] + by / bl * radius)
+  }
+  if (path.length > 1) ctx.lineTo(path[path.length - 1][0], path[path.length - 1][1]); ctx.stroke()
+}
+
 function wormBody(worm, index, tile, ox, oy, time, feel = {}) {
   ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = index === game.active ? C.pink : '#dd7891'; ctx.lineWidth = tile * .78
-  const points = worm.map(p => [ox + (p[0] + .5) * tile, oy + (p[1] + .5) * tile])
-  ctx.beginPath(); ctx.moveTo(points[0][0], points[0][1]); for (let i = 1; i < points.length - 1; i++) ctx.quadraticCurveTo(points[i][0], points[i][1], (points[i][0] + points[i + 1][0]) / 2, (points[i][1] + points[i + 1][1]) / 2); if (points.length > 1) ctx.lineTo(points[points.length - 1][0], points[points.length - 1][1]); ctx.stroke()
+  drawSmoothBody(worm, tile, ox, oy)
   worm.forEach((p, i) => { if (i && i % 2) { ctx.fillStyle = C.rose; ctx.beginPath(); ctx.arc(ox + (p[0] + .5) * tile, oy + (p[1] + .5) * tile, tile * .31, 0, 7); ctx.fill() } })
   const head = worm[0], next = worm[1] || [head[0] - 1, head[1]], rawX = feel.direction?.[0] ?? head[0] - next[0], rawY = feel.direction?.[1] ?? head[1] - next[1], length = Math.hypot(rawX, rawY) || 1, vx = rawX / length, vy = rawY / length, bob = Math.sin(time / 180 + index) * tile * .025
   const hx = ox + (head[0] + .5) * tile, hy = oy + (head[1] + .5) * tile + bob
