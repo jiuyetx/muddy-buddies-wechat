@@ -50,7 +50,7 @@ Object.entries(SOLUTIONS).forEach(([level, solution]) => {
   const game = new Game(Number(level)), initialWorms = game.worms.length, movedByWorm = new Set()
   solution.split(' ').forEach(step => { const parts = step.split(':'); if (parts.length === 2) assert(game.select(Number(parts[0])), `${game.id} cannot select worm ${parts[0]}`); movedByWorm.add(game.worm[0].id); assert(game.move(parts.at(-1)), `${game.id} solution failed at ${step}`) })
   assert(game.won, `${game.id} official solution did not win`)
-  if (game.objectives.some(objective => objective.type === 'ALL_CHARACTERS_EXIT')) assert.equal(movedByWorm.size, initialWorms, `${game.id} official solution leaves a buddy idle`)
+  if (game.objectives.some(objective => ['ALL_CHARACTERS_EXIT', 'ALL_EXITS_OCCUPIED'].includes(objective.type))) assert.equal(movedByWorm.size, initialWorms, `${game.id} official solution leaves a buddy idle`)
 })
 
 const basic = new Game(0)
