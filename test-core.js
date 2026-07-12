@@ -116,10 +116,10 @@ buddyPlate.worm = [[2, 1], [3, 1]]
 assert.equal(buddyPlate.pressureActive('buddy_pressure_3_1'), true)
 
 const headPlate = new Game(21)
-headPlate.worm = [[3, 2], [3, 1]]
-assert.equal(headPlate.pressureActive('head_pressure_3_1'), false)
-headPlate.worm = [[3, 1], [3, 2]]
-assert.equal(headPlate.pressureActive('head_pressure_3_1'), true)
+headPlate.worm = [[2, 2], [2, 1]]
+assert.equal(headPlate.pressureActive('head_pressure_2_1'), false)
+headPlate.worm = [[2, 1], [2, 2]]
+assert.equal(headPlate.pressureActive('head_pressure_2_1'), true)
 
 const everybody = new Game(17)
 everybody.worms = [everybody.makeWorm([[13, 5], [13, 4]]), everybody.makeWorm([[14, 6], [13, 6]])]
