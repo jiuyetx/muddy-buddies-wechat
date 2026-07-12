@@ -22,7 +22,8 @@ let lastQueuedDirection = null, lastQueuedAt = 0, boardLayout = { tile: 0, ox: 0
 let audio
 let muted = Boolean(wx.getStorageSync('muted'))
 let directionButtons = Boolean(wx.getStorageSync('directionButtons'))
-let mapChapter = Number(wx.getStorageSync('mapChapter')) || 1
+let mapScrollY = 0, mapVelocityY = 0, mapDragging = false, mapNeedsFocus = true
+const MAP_GAP = Math.max(92, Math.min(124, H * .27)), MAP_TOP = 90, MAP_VIEW_TOP = SAFE_TOP + 42, MAP_VIEW_BOTTOM = FOOTER_Y - 12
 
 function rr(x, y, w, h, r) {
   r = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2)); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
@@ -62,28 +63,58 @@ function title() {
   ctx.fillStyle = C.deep; rr(-190, -67, 380, 134, 34)
   ctx.fillStyle = C.cream; ctx.font = `900 ${Math.min(58, W / 9)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('泥 土 小 伙 伴', 0, -6)
   ctx.fillStyle = C.pink; rr(-145, 46, 72, 28, 14); ctx.fillStyle = C.white; ctx.beginPath(); ctx.arc(-84, 60, 9, 0, 7); ctx.fill(); ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(-81, 60, 4, 0, 7); ctx.fill()
-  ctx.restore(); button('开始探索', W / 2 - 65, H - SAFE_BOTTOM - 68, 130, () => { scene = 'map'; wx.setStorageSync('seenIntro', 1); sound('win') }, true)
+  ctx.restore(); button('开始探索', W / 2 - 65, H - SAFE_BOTTOM - 68, 130, () => { scene = 'map'; mapNeedsFocus = true; wx.setStorageSync('seenIntro', 1); sound('win') }, true)
   ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('原创身体解谜游戏', W / 2, H - SAFE_BOTTOM - 16)
 }
 
-function mapScreen() {
-  background('#694e43'); controls = []
-  const chapters = [...new Set(LEVELS.map(level => level.chapter))], chapterIndex = Math.max(0, Math.min(chapters.length - 1, chapters.indexOf(mapChapter))), chapter = chapters[chapterIndex], entries = LEVELS.map((level, index) => ({ level, index })).filter(entry => entry.level.chapter === chapter)
-  mapChapter = chapter
-  ctx.fillStyle = C.cream; ctx.font = '900 24px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(`${entries[0].level.chapterName} · 第${chapter}章`, 22, HEADER_Y)
-  const unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length)
-  const cols = entries.length, gap = 16, size = Math.min(82, (W - 60 - gap * (cols - 1)) / cols, H * .25), startX = (W - cols * size - gap * (cols - 1)) / 2, y = HEADER_Y + 42
-  entries.forEach(({ level, index: i }, card) => {
-    const x = startX + card * (size + gap)
-    ctx.fillStyle = i < unlocked ? C.deep : 'rgba(30,25,28,.35)'; rr(x, y, size, size, 17)
-    ctx.fillStyle = i < unlocked ? (i === unlocked - 1 ? C.yellow : C.cream) : 'rgba(255,255,255,.3)'; ctx.font = '900 22px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(i < unlocked ? i + 1 : '·', x + size / 2, y + size * .42)
-    ctx.font = '11px sans-serif'; ctx.fillText(i < unlocked ? level.name : '未发现', x + size / 2, y + size * .72)
-    const best = Number(wx.getStorageSync(`best_${i}`)) || 0
-    if (best) { ctx.fillStyle = 'rgba(255,255,255,.65)'; ctx.font = '9px sans-serif'; ctx.fillText(`${best}步`, x + size / 2, y + size - 6) }
-    if (i < unlocked) addControl(x, y, size, size, () => { game.load(i); clearAnimation(); scene = 'play'; transition = 1; sound('select') })
+function mapNodes() {
+  let y = MAP_TOP, chapter = 0
+  return LEVELS.map((level, index) => { if (level.chapter !== chapter) { y += chapter ? MAP_GAP * .55 : 0; chapter = level.chapter } const node = { level, index, x: W * (.5 + Math.sin(index * 1.7) * .18), y }; y += MAP_GAP; return node })
+}
+
+function focusMapCurrent() {
+  const unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length), node = mapNodes()[unlocked - 1]
+  mapScrollY = Math.max(0, Math.min(mapMaxScroll(), node.y - (MAP_VIEW_TOP + MAP_VIEW_BOTTOM) / 2)); mapVelocityY = 0; mapNeedsFocus = false
+}
+
+function mapMaxScroll() { const nodes = mapNodes(); return Math.max(0, nodes[nodes.length - 1].y + MAP_TOP - MAP_VIEW_BOTTOM) }
+
+function updateMapScroll() {
+  if (mapNeedsFocus) focusMapCurrent()
+  if (!mapDragging) { mapScrollY += mapVelocityY; mapVelocityY *= .9 }
+  const max = mapMaxScroll()
+  if (mapScrollY < 0) mapVelocityY += -mapScrollY * .15
+  if (mapScrollY > max) mapVelocityY += (max - mapScrollY) * .15
+  if (!mapDragging && Math.abs(mapVelocityY) < .05) { mapVelocityY = 0; mapScrollY = Math.max(0, Math.min(max, mapScrollY)) }
+}
+
+function mapScreen(time) {
+  background('#503d47'); controls = []; updateMapScroll()
+  const nodes = mapNodes(), unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length), current = unlocked - 1
+  ctx.save(); ctx.beginPath(); ctx.rect(0, MAP_VIEW_TOP, W, MAP_VIEW_BOTTOM - MAP_VIEW_TOP); ctx.clip(); ctx.translate(0, -mapScrollY)
+  ctx.lineCap = 'round'
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const a = nodes[i], b = nodes[i + 1], mid = (a.y + b.y) / 2
+    ctx.strokeStyle = i < current ? 'rgba(244,206,76,.68)' : 'rgba(31,23,31,.48)'; ctx.lineWidth = i < current ? 13 : 9; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.bezierCurveTo(a.x, mid, b.x, mid, b.x, b.y); ctx.stroke()
+    ctx.strokeStyle = i < current ? 'rgba(255,247,190,.25)' : 'rgba(255,255,255,.06)'; ctx.lineWidth = 3; ctx.stroke()
+  }
+  nodes.forEach(({ level, index: i, x, y }, n) => {
+    if (!i || level.chapter !== nodes[n - 1].level.chapter) {
+      ctx.fillStyle = 'rgba(25,20,24,.72)'; rr(W / 2 - 106, y - 45, 212, 28, 14); ctx.fillStyle = C.cream; ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(`第${level.chapter}章 · ${level.chapterName}`, W / 2, y - 31)
+    }
+    const available = i < unlocked, active = i === current, best = Number(wx.getStorageSync(`best_${i}`)) || 0, radius = active ? 31 + Math.sin(time / 280) * 2 : 24
+    if (active) { ctx.strokeStyle = `rgba(244,206,76,${.35 + Math.sin(time / 280) * .12})`; ctx.lineWidth = 8; ctx.beginPath(); ctx.arc(x, y, radius + 10, 0, 7); ctx.stroke() }
+    ctx.shadowColor = active ? C.yellow : 'transparent'; ctx.shadowBlur = active ? 18 : 0; ctx.fillStyle = available ? (active ? C.yellow : best ? C.green : C.cream) : 'rgba(30,24,31,.72)'; ctx.beginPath(); ctx.arc(x, y, radius, 0, 7); ctx.fill(); ctx.shadowColor = 'transparent'
+    ctx.fillStyle = available ? C.ink : 'rgba(255,255,255,.28)'; ctx.font = `900 ${active ? 19 : 15}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(available ? i + 1 : '·', x, y - 2)
+    ctx.fillStyle = available ? C.cream : 'rgba(255,255,255,.32)'; ctx.font = '700 11px sans-serif'; ctx.fillText(active ? `继续 · ${level.name}` : best ? `✓ ${best}步` : available ? level.name : '未生长', x, y + radius + 16)
+    const screenY = y - mapScrollY
+    if (available && screenY > MAP_VIEW_TOP - radius && screenY < MAP_VIEW_BOTTOM + radius) addControl(x - radius - 12, screenY - radius - 12, (radius + 12) * 2, (radius + 12) * 2, () => { game.load(i); clearAnimation(); scene = 'play'; transition = 1; sound('select') })
   })
-  if (chapterIndex > 0) button('‹ 上一章', W / 2 - 104, FOOTER_Y - 45, 92, () => { mapChapter = chapters[chapterIndex - 1]; wx.setStorageSync('mapChapter', mapChapter); sound('select') })
-  if (chapterIndex < chapters.length - 1) button('下一章 ›', W / 2 + 12, FOOTER_Y - 45, 92, () => { mapChapter = chapters[chapterIndex + 1]; wx.setStorageSync('mapChapter', mapChapter); sound('select') })
+  ctx.restore()
+  const currentNode = nodes[current], distance = Math.abs(currentNode.y - mapScrollY - (MAP_VIEW_TOP + MAP_VIEW_BOTTOM) / 2)
+  ctx.fillStyle = C.cream; ctx.font = '900 21px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText('生命树', 22, HEADER_Y)
+  ctx.fillStyle = 'rgba(255,255,255,.65)'; ctx.font = '12px sans-serif'; ctx.fillText('上滑看未来 · 下滑看足迹', 22, HEADER_Y + 18)
+  if (distance > MAP_GAP * 1.2) button('回到当前', W / 2 - 47, FOOTER_Y - 43, 94, () => { mapNeedsFocus = true; sound('select') })
   button('返回标题', 18, FOOTER_Y, 90, () => { scene = 'title' })
   button(directionButtons ? '辅助键：开' : '辅助键：关', W / 2 - 48, FOOTER_Y, 96, () => { directionButtons = !directionButtons; wx.setStorageSync('directionButtons', directionButtons); sound('select') })
   button(muted ? '声音：关' : '声音：开', W - 104, FOOTER_Y, 86, () => { muted = !muted; wx.setStorageSync('muted', muted); if (!muted) sound('select') })
@@ -274,7 +305,7 @@ function play(time) {
   ctx.textAlign = 'right'; ctx.fillText(`${game.moves} 步 · ${game.liveWorms().length}/${game.worms.length} 位未回家`, W - 15, HEADER_Y)
   const utilityX = directionButtons ? 24 : W / 2 - 108, mapX = directionButtons ? W - 69 : utilityX + 160
   button('↶ 撤回一步', utilityX, FOOTER_Y, 86, () => { game.undo(); clearAnimation(); sound('move') }, false, game.history.length === 0)
-  button('重开', utilityX + 94, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 56, () => { scene = 'map' })
+  button('重开', utilityX + 94, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 56, () => { scene = 'map'; mapNeedsFocus = true })
   if (directionButtons) { const directions = [['←','left'], ['↑','up'], ['↓','down'], ['→','right']], start = W / 2 - 81; directions.forEach(([label, direction], i) => button(label, start + i * 42, FOOTER_Y, 36, () => enqueue(direction))) }
 
   if (game.level === 0 && game.moves === 0 && !wx.getStorageSync('learnedSwipe')) {
@@ -292,7 +323,7 @@ function play(time) {
     ctx.fillStyle = C.cream; ctx.font = '900 27px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('伙伴们找到路了！', W / 2, H / 2 - 34)
     ctx.font = '13px sans-serif'; ctx.fillStyle = C.white; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴`, W / 2, H / 2 - 3)
     if (game.level < LEVELS.length - 1) button('继续深入 →', W / 2 - 62, H / 2 + 20, 124, () => { game.load(game.level + 1); clearAnimation(); wx.setStorageSync('caveLevel', game.level); scene = 'play'; transition = 1 })
-    else button('回到地图', W / 2 - 52, H / 2 + 20, 104, () => { scene = 'map' })
+    else button('回到地图', W / 2 - 52, H / 2 + 20, 104, () => { scene = 'map'; mapNeedsFocus = true })
   }
 }
 
@@ -332,15 +363,21 @@ function swipeDirection(t) {
 }
 function enqueue(direction) { const now = Date.now(); if (scene !== 'play' || game.won || inputQueue.length >= 2 || (direction === lastQueuedDirection && now - lastQueuedAt < 80)) return; inputQueue.push(direction); lastQueuedDirection = direction; lastQueuedAt = now }
 function consumeInput() { if (!motion && !pushMotion && !bumpMotion && inputQueue.length && !game.won) move(inputQueue.shift()) }
-wx.onTouchStart(e => { const t = e.touches[0], ui = controls.some(c => c.blockSwipe && t.clientX >= c.x && t.clientX <= c.x + c.w && t.clientY >= c.y && t.clientY <= c.y + c.h); lastActionAt = Date.now(); touch = { x: t.clientX, y: t.clientY, ui } })
+wx.onTouchStart(e => { const t = e.touches[0], ui = controls.some(c => c.blockSwipe && t.clientX >= c.x && t.clientX <= c.x + c.w && t.clientY >= c.y && t.clientY <= c.y + c.h), now = Date.now(); lastActionAt = now; touch = { x: t.clientX, y: t.clientY, lastY: t.clientY, lastAt: now, ui }; mapDragging = scene === 'map' && !ui; if (mapDragging) mapVelocityY = 0 })
+wx.onTouchMove(e => {
+  if (!touch || scene !== 'map' || touch.ui) return
+  const t = e.touches[0], now = Date.now(), dy = t.clientY - touch.lastY, elapsed = Math.max(1, now - touch.lastAt), max = mapMaxScroll()
+  mapScrollY -= dy * ((mapScrollY < 0 && dy > 0) || (mapScrollY > max && dy < 0) ? .38 : 1)
+  mapScrollY = Math.max(-70, Math.min(max + 70, mapScrollY)); mapVelocityY = Math.max(-32, Math.min(32, -dy / elapsed * 16)); touch.lastY = t.clientY; touch.lastAt = now
+})
 wx.onTouchEnd(e => {
   if (!touch) return
   const t = e.changedTouches[0]
   const distance = Math.hypot(t.clientX - touch.x, t.clientY - touch.y), direction = !touch.ui && scene === 'play' ? swipeDirection(t) : null
-  if (direction) enqueue(direction); else if (touch.ui || distance < 14) tap(t.clientX, t.clientY)
-  touch = null
+  if (direction) enqueue(direction); else if (touch.ui || (distance < 14 && (scene !== 'map' || Math.abs(mapVelocityY) < 2))) tap(t.clientX, t.clientY)
+  mapDragging = false; touch = null
 })
-wx.onTouchCancel(() => { touch = null })
+wx.onTouchCancel(() => { mapDragging = false; touch = null })
 
 try {
   wx.setKeepScreenOn({ keepScreenOn: true })
@@ -356,6 +393,6 @@ try {
 } catch (_) {}
 
 function loop(time) {
-  if (scene === 'title') title(); else if (scene === 'map') mapScreen(); else { play(time); consumeInput() } requestAnimationFrame(loop)
+  if (scene === 'title') title(); else if (scene === 'map') mapScreen(time); else { play(time); consumeInput() } requestAnimationFrame(loop)
 }
 loop(0)
