@@ -43,10 +43,11 @@ function sound(kind) {
 }
 
 function addControl(x, y, w, h, action, blockSwipe = false) { controls.push({ x, y, w, h, action, blockSwipe }) }
-function button(label, x, y, w, action, accent = false) {
+function button(label, x, y, w, action, accent = false, disabled = false) {
+  ctx.save(); if (disabled) ctx.globalAlpha = .38
   ctx.fillStyle = accent ? C.cream : 'rgba(25,20,24,.72)'; rr(x, y, w, 38, 19)
   ctx.fillStyle = accent ? C.ink : C.cream; ctx.font = '700 14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x + w / 2, y + 19)
-  addControl(x, y, w, 38, action, true)
+  ctx.restore(); if (!disabled) addControl(x, y, w, 38, action, true)
 }
 
 function background(color = C.dirt) {
@@ -262,7 +263,9 @@ function play(time) {
   ctx.fillStyle = C.cream; ctx.font = '800 17px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(`${game.level + 1}. ${game.name}`, 15, HEADER_Y)
   ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(game.message || game.hint, 15, HEADER_Y + 21)
   ctx.textAlign = 'right'; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴`, W - 15, HEADER_Y)
-  button('↶', 14, FOOTER_Y, 42, () => { game.undo(); clearAnimation(); sound('move') }); button('重开', 63, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', W - 69, FOOTER_Y, 56, () => { scene = 'map' })
+  const utilityX = directionButtons ? 24 : W / 2 - 108, mapX = directionButtons ? W - 69 : utilityX + 160
+  button('↶ 撤回一步', utilityX, FOOTER_Y, 86, () => { game.undo(); clearAnimation(); sound('move') }, false, game.history.length === 0)
+  button('重开', utilityX + 94, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 56, () => { scene = 'map' })
   if (directionButtons) { const directions = [['←','left'], ['↑','up'], ['↓','down'], ['→','right']], start = W / 2 - 81; directions.forEach(([label, direction], i) => button(label, start + i * 42, FOOTER_Y, 36, () => enqueue(direction))) }
 
   if (game.level === 0 && game.moves === 0 && !wx.getStorageSync('learnedSwipe')) {
