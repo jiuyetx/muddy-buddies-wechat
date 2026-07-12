@@ -1,8 +1,8 @@
 const goals = (...types) => types.map(type => ({ type }))
 const link = (source, target) => ({ source, target, mode: 'WHILE_ACTIVE' })
-const level = (id, chapter, chapterName, name, hint, tiles, worms, objectives = goals('REACH_EXIT'), links = []) => ({
+const level = (id, chapter, chapterName, name, hint, tiles, worms, objectives = goals('REACH_EXIT'), links = [], verified = false) => ({
   id, chapter, chapterName, name, hint, width: Math.max(...tiles.map(row => row.length)), height: tiles.length, maxUndoHint: 3,
-  status: chapter <= 3 ? 'playtest' : 'draft', objectives, tiles,
+  status: chapter <= 3 || verified ? 'playtest' : 'draft', objectives, tiles,
   entities: worms.map((segments, i) => ({ type: 'WORM', id: `worm_${i + 1}`, components: ['BodyComponent'], segments })), links
 })
 
@@ -52,9 +52,9 @@ module.exports = [
   level('5-03', 5, '深处的家', '最后的回家路', '照顾伙伴、果子和蛋，所有线索都在路上', [
     '####################', '#..A....#..........#', '#.......D.....N....#', '#...R...#..........#', '#..SB...#####......#', '#.......#....#.....#', '#..#####.....#..E..#', '#.......#.A..#...X.#', '#.......#..........#', '####################'
   ], [[[2, 8], [3, 8], [4, 8], [5, 8], [6, 8], [6, 7]]], goals('COLLECT_ALL_APPLES', 'DELIVER_ALL_EGGS', 'REACH_EXIT'), [link('pressure_4_4', 'door_8_2')]),
-  level('6-01', 6, '菌丝工坊', '两把门闩', '两位伙伴守住门闩，第三位寻找回路', [
-    '###################', '#....B.#...#.B....#', '#......#...#......#', '#......D...D......#', '#......#...#......#', '#......#...#......#', '#......#...#....X.#', '###################'
-  ], [[[3, 5], [3, 4]], [[15, 5], [15, 4]], [[10, 6], [9, 6]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_5_1', 'door_7_3'), link('pressure_13_1', 'door_11_3')]),
+  level('6-01', 6, '菌丝工坊', '岩石换岗', '把岩石推上按钮，释放所有守门伙伴', [
+    '#################', '#...B.R.#.......#', '#.......#.......#', '#.......D....X..#', '#.......#.......#', '#.......#.......#', '#################'
+  ], [[[7, 2], [6, 2]], [[2, 4], [2, 5]], [[4, 5], [3, 5]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_4_1', 'door_8_3')], true),
   level('6-02', 6, '菌丝工坊', '接力开门', '交换按钮岗位，让两位伙伴都能回家', [
     '####################', '#....B..D..........#', '#.......#..........#', '#.......#....B.....#', '#.......D..........#', '#.......#.......X..#', '####################'
   ], [[[3, 5], [3, 4]], [[13, 5], [13, 4]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_5_1', 'door_8_1'), link('pressure_13_3', 'door_8_4')]),

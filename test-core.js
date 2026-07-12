@@ -1,6 +1,7 @@
 const assert = require('assert')
 const { Game, LEVELS } = require('./core')
 const { resolveSwipe } = require('./input')
+const SOLUTIONS = require('./solutions')
 const positions = worm => worm.map(segment => segment.slice())
 
 assert(LEVELS.every(level => level.id && level.width && level.height && level.objectives.length && Array.isArray(level.entities) && Array.isArray(level.links)))
@@ -39,22 +40,12 @@ LEVELS.filter(level => level.links.length).forEach(level => {
   assert(starts.every(start => exitReachable(level, true, start)), `${level.id} has no route after its doors open`)
 })
 
-const solutions = [
-  '0:right 0:right 0:right 0:right 0:right 0:right',
-  '0:right 0:up 0:up 0:right 0:down 0:down 0:right 0:right 0:right 0:right',
-  '0:left 0:up 0:up 0:right 0:down 0:down 0:right 0:right 0:right 0:right 0:right 0:up 0:up 0:up 0:right 0:right 0:right',
-  '0:down 0:right 0:right 0:right 0:right 0:right 0:right 0:right 0:right',
-  '0:down 0:right 0:right 0:right 0:right 0:right 0:right 0:right 0:right 0:right',
-  '0:up 0:right 0:right 0:right 0:right 1:left 0:right 0:right 0:right 0:right 0:right 0:right',
-  '0:up 0:up 0:up 0:up 0:right 0:down 0:down 0:right 0:right 0:right 0:right 0:down 0:down 0:right 0:right 0:right 0:right 0:up 0:up 0:up 0:up 0:right',
-  '0:right 0:down 0:right 0:right 0:right 0:right 0:right 0:down 0:down 0:right 0:right 0:right 0:right 0:up 0:up 0:up 0:up 0:right',
-  '0:left 0:up 0:up 0:up 0:up 0:up 0:up 0:right 0:right 0:right 0:down 0:down 0:right 0:up 0:right 0:right 0:right 0:right 0:right 0:right 0:right 0:right'
-]
-solutions.forEach((solution, level) => { const game = new Game(level); solution.split(' ').forEach(step => { const [active, direction] = step.split(':'); game.select(Number(active)); assert(game.move(direction), `${LEVELS[level].id} solution move failed`) }); assert(game.won, `${LEVELS[level].id} solution did not win`) })
-
-const eggDetour = new Game(10)
-'left up up up up up right right down down left down right right right right right right right down right up up right up up left left down right right right right up right down down down down down'.split(' ').forEach(direction => assert(eggDetour.move(direction), `4-02 solution failed at ${direction}`))
-assert(eggDetour.won, '4-02 solution did not win')
+LEVELS.forEach((level, index) => { if (level.status === 'playtest') assert(SOLUTIONS[index], `${level.id} cannot enter playtest without an official solution`) })
+Object.entries(SOLUTIONS).forEach(([level, solution]) => {
+  const game = new Game(Number(level))
+  solution.split(' ').forEach(step => { const parts = step.split(':'); if (parts.length === 2) assert(game.select(Number(parts[0])), `${game.id} cannot select worm ${parts[0]}`); assert(game.move(parts.at(-1)), `${game.id} solution failed at ${step}`) })
+  assert(game.won, `${game.id} official solution did not win`)
+})
 
 const basic = new Game(0)
 assert.equal(basic.interaction('right'), 'move')
