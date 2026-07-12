@@ -18,6 +18,7 @@ LEVELS.forEach(level => {
   assert(level.tiles.every(row => row.length === level.width), `${level.id} row width mismatch`)
   const ids = new Set()
   level.tiles.forEach((row, y) => [...row].forEach((cell, x) => { if (tokenType[cell]) ids.add(`${tokenType[cell]}_${x}_${y}`) }))
+  level.tiles.forEach((row, y) => [...row].forEach((cell, x) => { if (cell === 'R') assert([[1,0],[-1,0],[0,1],[0,-1]].every(([dx, dy]) => level.tiles[y + dy]?.[x + dx] !== '#'), `${level.id} rock at ${x},${y} touches a wall`) }))
   level.entities.filter(entity => entity.type === 'WORM').flatMap(entity => entity.segments).forEach(([x, y]) => assert(level.tiles[y]?.[x] && level.tiles[y][x] !== '#', `${level.id} worm starts in wall`))
   level.links.forEach(({ source, target }) => { assert(ids.has(source), `${level.id} missing link source ${source}`); assert(ids.has(target), `${level.id} missing link target ${target}`) })
 })
