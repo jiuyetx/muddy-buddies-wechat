@@ -1,8 +1,8 @@
 const goals = (...types) => types.map(type => ({ type }))
 const link = (source, target) => ({ source, target, mode: 'WHILE_ACTIVE' })
-const level = (id, chapter, chapterName, name, hint, tiles, worms, objectives = goals('REACH_EXIT'), links = [], verified = false) => ({
+const level = (id, chapter, chapterName, name, hint, tiles, worms, objectives = goals('REACH_EXIT'), links = [], verified = false, releasePlan = []) => ({
   id, chapter, chapterName, name, hint, width: Math.max(...tiles.map(row => row.length)), height: tiles.length, maxUndoHint: 3,
-  status: chapter <= 3 || verified ? 'playtest' : 'draft', objectives, tiles,
+  status: chapter <= 3 || verified ? 'playtest' : 'draft', objectives, releasePlan, tiles,
   entities: worms.map((segments, i) => ({ type: 'WORM', id: `worm_${i + 1}`, components: ['BodyComponent'], segments })), links
 })
 
@@ -54,19 +54,19 @@ module.exports = [
   ], [[[2, 8], [3, 8], [4, 8], [5, 8], [6, 8], [6, 7]]], goals('COLLECT_ALL_APPLES', 'DELIVER_ALL_EGGS', 'REACH_EXIT'), [link('pressure_4_4', 'door_8_2')]),
   level('6-01', 6, '菌丝工坊', '岩石换岗', '把岩石推上按钮，释放所有守门伙伴', [
     '#################', '#...B.R.#.......#', '#.......#.......#', '#.......D....X..#', '#.......#.......#', '#.......#.......#', '#################'
-  ], [[[7, 2], [6, 2]], [[2, 4], [2, 5]], [[4, 5], [3, 5]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_4_1', 'door_8_3')], true),
+  ], [[[7, 2], [6, 2]], [[2, 4], [2, 5]], [[4, 5], [3, 5]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_4_1', 'door_8_3')], true, [{ door: 'door_8_3', releaseBy: 'rock' }]),
   level('6-02', 6, '菌丝工坊', '接力开门', '交换按钮岗位，让两位伙伴都能回家', [
     '####################', '#....B..D..........#', '#.......#..........#', '#.......#....B.....#', '#.......D..........#', '#.......#.......X..#', '####################'
   ], [[[3, 5], [3, 4]], [[13, 5], [13, 4]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_5_1', 'door_8_1'), link('pressure_13_3', 'door_8_4')]),
   level('6-03', 6, '菌丝工坊', '一长一短', '长伙伴负责占位，短伙伴负责转身', [
     '##################', '#..B....#........#', '#.......D........#', '#.......#........#', '#.......#....B...#', '#.......D.....X..#', '#.......#........#', '##################'
-  ], [[[6, 3], [5, 3], [4, 3], [3, 3], [2, 3]], [[2, 5], [2, 6]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_3_1', 'door_8_2'), link('pressure_13_4', 'door_8_5')], true),
+  ], [[[6, 3], [5, 3], [4, 3], [3, 3], [2, 3]], [[2, 5], [2, 6]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_3_1', 'door_8_2'), link('pressure_13_4', 'door_8_5')], true, [{ door: 'door_8_2', releaseBy: 'alternate-door' }, { door: 'door_8_5', releaseBy: 'partner' }]),
   level('6-04', 6, '菌丝工坊', '三段分工', '连续经过剪刀，安排三位伙伴的岗位', [
     '#####################', '#....S...#..S.......#', '#........#..........#', '#..B.....D.....B....#', '#........#..........#', '#........D.......X..#', '#........#..........#', '#####################'
   ], [[[2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [8, 6]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_3_3', 'door_9_3'), link('pressure_15_3', 'door_9_5')]),
   level('6-05', 6, '菌丝工坊', '一个都不能少', '开门、换岗、释放守门者，三位都要回家', [
-    '######################', '#..B....#.....B......#', '#.......#.....#......#', '#.......D.....D......#', '#..#######...#######.#', '#.......#.....#......#', '#.......#.....#....X.#', '######################'
-  ], [[[3, 6], [3, 5]], [[10, 6], [10, 5]], [[16, 6], [16, 5]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_3_1', 'door_8_3'), link('pressure_14_1', 'door_14_3')]),
+    '######################', '#..B.R..#B.R..#......#', '#.......#.....#......#', '#.......D.....D....X.#', '#.......#.....#......#', '#.......#.....#......#', '######################'
+  ], [[[7, 2], [6, 2]], [[13, 2], [12, 2]], [[17, 5], [17, 4]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_3_1', 'door_8_3'), link('pressure_9_1', 'door_14_3')], true, [{ door: 'door_8_3', releaseBy: 'rock' }, { door: 'door_14_3', releaseBy: 'rock' }]),
   level('7-01', 7, '发光菌洞', '只认伙伴', '绿色按钮只认伙伴，石头无法代替', [
     '####################', '#..R....P....D..X..#', '#.......#....#.....#', '#.......#....#.....#', '#.......#....#.....#', '####################'
   ], [[[3, 4], [3, 3]], [[15, 4], [15, 3]]], goals('ALL_CHARACTERS_EXIT'), [link('buddy_pressure_8_1', 'door_13_1')]),

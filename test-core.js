@@ -41,6 +41,10 @@ LEVELS.filter(level => level.links.length).forEach(level => {
 })
 
 LEVELS.forEach((level, index) => { if (level.status === 'playtest') assert(SOLUTIONS[index], `${level.id} cannot enter playtest without an official solution`) })
+LEVELS.filter(level => level.status === 'playtest' && level.objectives.some(objective => objective.type === 'ALL_CHARACTERS_EXIT')).forEach(level => {
+  const plannedDoors = new Set(level.releasePlan.map(plan => plan.door))
+  level.links.forEach(link => assert(plannedDoors.has(link.target), `${level.id} has no release plan for ${link.target}`))
+})
 Object.entries(SOLUTIONS).forEach(([level, solution]) => {
   const game = new Game(Number(level)), initialWorms = game.worms.length, movedByWorm = new Set()
   solution.split(' ').forEach(step => { const parts = step.split(':'); if (parts.length === 2) assert(game.select(Number(parts[0])), `${game.id} cannot select worm ${parts[0]}`); movedByWorm.add(game.worm[0].id); assert(game.move(parts.at(-1)), `${game.id} solution failed at ${step}`) })
