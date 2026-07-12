@@ -9,6 +9,36 @@ assert.equal(resolveSwipe(30, 3, 800), 'right')
 assert.equal(resolveSwipe(30, 27, 800), null)
 assert.equal(resolveSwipe(10, 2, 800), null)
 
+function exitReachable(level, doorsOpen) {
+  const start = level.entities.find(entity => entity.type === 'WORM').segments[0], seen = new Set([start.join(',')]), queue = [start]
+  while (queue.length) {
+    const [x, y] = queue.shift()
+    if (level.tiles[y][x] === 'X') return true
+    for (const [dx, dy] of [[0,-1], [0,1], [-1,0], [1,0]]) {
+      const nx = x + dx, ny = y + dy, cell = level.tiles[ny]?.[nx], id = `${nx},${ny}`
+      if (cell && cell !== '#' && (doorsOpen || cell !== 'D') && !seen.has(id)) { seen.add(id); queue.push([nx, ny]) }
+    }
+  }
+  return false
+}
+LEVELS.filter(level => level.links.length).forEach(level => {
+  assert.equal(exitReachable(level, false), false, `${level.id} can bypass its closed door`)
+  assert.equal(exitReachable(level, true), true, `${level.id} has no route after its door opens`)
+})
+
+const divided = new Game(7)
+for (const direction of ['right','right','right','right']) divided.move(direction)
+divided.select(1); for (const direction of ['down','right','right']) divided.move(direction)
+divided.select(0); for (let i = 0; i < 7; i++) divided.move('right')
+assert.equal(divided.won, true, '3-02 scripted solution failed')
+
+const home = new Game(9)
+for (const direction of ['up','right','up','left']) home.move(direction)
+home.select(1); for (const direction of ['right','up']) home.move(direction)
+home.select(0); home.move('up'); for (let i = 0; i < 11; i++) home.move('right')
+for (const direction of ['down','down','down','right','right']) home.move(direction)
+assert.equal(home.won, true, '4-01 scripted solution failed')
+
 const basic = new Game(0)
 assert.equal(basic.interaction('right'), 'move')
 assert.equal(basic.move('right'), true)
@@ -17,13 +47,12 @@ assert.equal(basic.undo(), true)
 assert.deepEqual(positions(basic.worm), [[2, 4], [2, 3], [3, 3]])
 
 const rock = new Game(2)
-rock.worm = [[3, 2], [2, 2]]
+rock.worm = [[5, 2], [4, 2]]
 assert.equal(rock.move('right'), true)
-assert(rock.rocks.has('5,2'))
+assert(rock.rocks.has('7,2'))
 
 const cut = new Game(4)
-cut.worm = [[6, 2], [5, 2], [5, 3], [4, 3]]
-assert.equal(cut.move('right'), true)
+cut.worm = [[8, 2], [7, 2], [6, 2], [5, 2]]
 assert.equal(cut.move('right'), true)
 assert.equal(cut.worms.length, 2)
 assert(cut.worms.every(worm => worm.length >= 2))
