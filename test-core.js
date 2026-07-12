@@ -51,6 +51,10 @@ const solutions = [
 ]
 solutions.forEach((solution, level) => { const game = new Game(level); solution.split(' ').forEach(step => { const [active, direction] = step.split(':'); game.select(Number(active)); assert(game.move(direction), `${LEVELS[level].id} solution move failed`) }); assert(game.won, `${LEVELS[level].id} solution did not win`) })
 
+const eggDetour = new Game(10)
+'left up up up up up right right down down left down right right right right right right right down right up up right up up left left down right right right right up right down down down down down'.split(' ').forEach(direction => assert(eggDetour.move(direction), `4-02 solution failed at ${direction}`))
+assert(eggDetour.won, '4-02 solution did not win')
+
 const basic = new Game(0)
 assert.equal(basic.interaction('right'), 'move')
 assert.equal(basic.move('right'), true)
