@@ -16,6 +16,7 @@ assert.equal(LEVELS.length, 25)
 const tokenType = { B: 'pressure', P: 'buddy_pressure', H: 'head_pressure', D: 'door' }
 LEVELS.forEach(level => {
   assert(level.tiles.every(row => row.length === level.width), `${level.id} row width mismatch`)
+  if (level.chapter >= 6 && level.id !== '6-01') assert(level.width >= 18 && level.width <= 24 && level.height >= 7 && level.height <= 10, `${level.id} should use the 18-22 x 7-9 standard or the 24 x 10 special size`)
   const ids = new Set()
   level.tiles.forEach((row, y) => [...row].forEach((cell, x) => { if (tokenType[cell]) ids.add(`${tokenType[cell]}_${x}_${y}`) }))
   level.tiles.forEach((row, y) => [...row].forEach((cell, x) => { if (cell === 'R') assert([[1,0],[-1,0],[0,1],[0,-1]].every(([dx, dy]) => level.tiles[y + dy]?.[x + dx] !== '#'), `${level.id} rock at ${x},${y} touches a wall`) }))

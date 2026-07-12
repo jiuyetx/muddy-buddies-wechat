@@ -9,6 +9,7 @@ try { capsule = wx.getMenuButtonBoundingClientRect() } catch (_) {}
 const SAFE_TOP = Math.max(safe.top || 0, capsule ? capsule.bottom : 0)
 const SAFE_BOTTOM = Math.max(0, H - (safe.bottom || H))
 const HEADER_Y = SAFE_TOP + 18, FOOTER_Y = H - SAFE_BOTTOM - 42
+const PLAY_HEADER_TOP = SAFE_TOP + 5, PLAY_HEADER_HEIGHT = 46, PLAY_VIEW_TOP = PLAY_HEADER_TOP + PLAY_HEADER_HEIGHT + 6, PLAY_VIEW_BOTTOM = FOOTER_Y - 10
 const canvas = wx.createCanvas(), ctx = canvas.getContext('2d')
 canvas.width = W * DPR; canvas.height = H * DPR; ctx.scale(DPR, DPR)
 
@@ -29,6 +30,13 @@ function rr(x, y, w, h, r) {
   r = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2)); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
   ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
   ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); ctx.fill()
+}
+
+function fitText(text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text
+  let result = text
+  while (result && ctx.measureText(`${result}…`).width > maxWidth) result = result.slice(0, -1)
+  return `${result}…`
 }
 
 function sound(kind) {
@@ -243,7 +251,8 @@ function characterFeel(worm, index, now) {
 function play(time) {
   controls = []; ctx.save(); if (shake > 0) { ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake *= .82 }
   background(game.chapter === '苔藓庭院' ? '#65735b' : game.chapter === '曲根回廊' ? '#735644' : game.chapter === '深处的家' ? '#584158' : C.dirt)
-  const top = HEADER_Y + 31, bottom = 49 + SAFE_BOTTOM, tile = Math.floor(Math.min((W - 24) / game.w, (H - top - bottom) / game.h)), ox = Math.floor((W - game.w * tile) / 2), oy = top + Math.floor((H - top - bottom - game.h * tile) / 2)
+  const availableH = PLAY_VIEW_BOTTOM - PLAY_VIEW_TOP, tile = Math.min(42, Math.floor(Math.min((W - 32) / game.w, availableH / game.h))), ox = Math.floor((W - game.w * tile) / 2)
+  const oy = PLAY_VIEW_TOP + Math.min(Math.floor(Math.max(0, availableH - game.h * tile) * .15), 16)
   boardLayout = { tile, ox, oy }
   ctx.fillStyle = C.tunnel; for (let y = 0; y < game.h; y++) for (let x = 0; x < game.w; x++) if (!game.walls.has(key([x, y]))) {
     rr(ox + x * tile - 1, oy + y * tile - 1, tile + 2, tile + 2, tile * .19)
@@ -300,9 +309,11 @@ function play(time) {
   game.worms.forEach((worm, i) => { if (game.isExited(worm)) return; const [x, y] = worm[0], size = tile * 1.35, offset = (size - tile) / 2; addControl(ox + x * tile - offset, oy + y * tile - offset, size, size, () => { inputQueue = []; game.select(i); wx.setStorageSync('learnedSwitch', 1); sound('select') }) })
   particlesDraw(); ctx.restore()
 
-  ctx.fillStyle = C.cream; ctx.font = '800 17px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(`${game.level + 1}. ${game.name}`, 15, HEADER_Y)
-  ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(game.message || game.hint, 15, HEADER_Y + 21)
-  ctx.textAlign = 'right'; ctx.fillText(`${game.moves} 步 · ${game.liveWorms().length}/${game.worms.length} 位未回家`, W - 15, HEADER_Y)
+  ctx.save(); ctx.fillStyle = 'rgba(25,20,24,.78)'; rr(10, PLAY_HEADER_TOP, W - 20, PLAY_HEADER_HEIGHT, 14)
+  const stats = `${game.moves} 步 · ${game.liveWorms().length}/${game.worms.length} 位未回家`
+  ctx.textBaseline = 'middle'; ctx.fillStyle = C.cream; ctx.font = '800 16px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(fitText(`${game.level + 1}. ${game.name}`, W - 56 - ctx.measureText(stats).width), 22, PLAY_HEADER_TOP + 14)
+  ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(fitText(game.message || game.hint, W - 44), 22, PLAY_HEADER_TOP + 33)
+  ctx.textAlign = 'right'; ctx.fillText(stats, W - 22, PLAY_HEADER_TOP + 14); ctx.restore()
   const utilityX = directionButtons ? 24 : W / 2 - 108, mapX = directionButtons ? W - 69 : utilityX + 160
   button('↶ 撤回一步', utilityX, FOOTER_Y, 86, () => { game.undo(); clearAnimation(); sound('move') }, false, game.history.length === 0)
   button('重开', utilityX + 94, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 56, () => { scene = 'map'; mapNeedsFocus = true })
