@@ -11,8 +11,8 @@ assert.equal(resolveSwipe(10, 2, 800), null)
 assert.equal(resolveSwipe(70, 45, 800), 'right')
 assert.equal(resolveSwipe(43, 75, 800), 'down')
 assert.equal(resolveSwipe(70, 68, 800), null)
-assert.equal(LEVELS.length, 15)
-const tokenType = { B: 'pressure', D: 'door' }
+assert.equal(LEVELS.length, 25)
+const tokenType = { B: 'pressure', P: 'buddy_pressure', H: 'head_pressure', D: 'door' }
 LEVELS.forEach(level => {
   assert(level.tiles.every(row => row.length === level.width), `${level.id} row width mismatch`)
   const ids = new Set()
@@ -21,8 +21,8 @@ LEVELS.forEach(level => {
   level.links.forEach(({ source, target }) => { assert(ids.has(source), `${level.id} missing link source ${source}`); assert(ids.has(target), `${level.id} missing link target ${target}`) })
 })
 
-function exitReachable(level, doorsOpen) {
-  const start = level.entities.find(entity => entity.type === 'WORM').segments[0], seen = new Set([start.join(',')]), queue = [start]
+function exitReachable(level, doorsOpen, start = level.entities.find(entity => entity.type === 'WORM').segments[0]) {
+  const seen = new Set([start.join(',')]), queue = [start]
   while (queue.length) {
     const [x, y] = queue.shift()
     if (level.tiles[y][x] === 'X') return true
@@ -34,8 +34,9 @@ function exitReachable(level, doorsOpen) {
   return false
 }
 LEVELS.filter(level => level.links.length).forEach(level => {
-  assert.equal(exitReachable(level, false), false, `${level.id} can bypass its closed door`)
-  assert.equal(exitReachable(level, true), true, `${level.id} has no route after its door opens`)
+  const starts = level.entities.filter(entity => entity.type === 'WORM').map(entity => entity.segments[0])
+  assert(starts.some(start => !exitReachable(level, false, start)), `${level.id} doors block nobody`)
+  assert(starts.every(start => exitReachable(level, true, start)), `${level.id} has no route after its doors open`)
 })
 
 const solutions = [
@@ -110,4 +111,35 @@ assert.equal(manualCut.cut(0, 2), true)
 assert.equal(manualCut.worms.length, 2)
 assert.equal(manualCut.worms[1][manualCut.worms[1].length - 1].id, joined)
 assert.equal(manualCut.worms[0][manualCut.worms[0].length - 1].next, null)
+
+const buddyPlate = new Game(20)
+buddyPlate.rocks.add('8,1')
+assert.equal(buddyPlate.pressureActive('buddy_pressure_8_1'), false)
+buddyPlate.worm = [[7, 1], [8, 1]]
+assert.equal(buddyPlate.pressureActive('buddy_pressure_8_1'), true)
+
+const headPlate = new Game(21)
+headPlate.worm = [[3, 2], [3, 1]]
+assert.equal(headPlate.pressureActive('head_pressure_3_1'), false)
+headPlate.worm = [[3, 1], [3, 2]]
+assert.equal(headPlate.pressureActive('head_pressure_3_1'), true)
+
+const everybody = new Game(17)
+everybody.worms = [everybody.makeWorm([[16, 5], [16, 4]]), everybody.makeWorm([[17, 6], [16, 6]])]
+everybody.relink()
+assert.equal(everybody.move('right'), true)
+assert.equal(everybody.won, false)
+assert.equal(everybody.liveWorms().length, 1)
+assert.equal(everybody.select(0), false)
+assert.equal(everybody.undo(), true)
+assert.equal(everybody.liveWorms().length, 2)
+assert.equal(everybody.move('right'), true)
+assert.equal(everybody.move('up'), true)
+assert.equal(everybody.won, true)
+
+const occupiedExits = new Game(22)
+const exits = [...occupiedExits.exits].map(exit => exit.split(',').map(Number))
+occupiedExits.worms = exits.map(([x, y]) => occupiedExits.makeWorm([[x, y]]))
+occupiedExits.relink()
+assert.equal(occupiedExits.objectiveComplete({ type: 'ALL_EXITS_OCCUPIED' }), true)
 console.log('core checks passed')

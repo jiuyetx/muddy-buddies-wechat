@@ -22,6 +22,7 @@ let lastQueuedDirection = null, lastQueuedAt = 0, boardLayout = { tile: 0, ox: 0
 let audio
 let muted = Boolean(wx.getStorageSync('muted'))
 let directionButtons = Boolean(wx.getStorageSync('directionButtons'))
+let mapChapter = Number(wx.getStorageSync('mapChapter')) || 1
 
 function rr(x, y, w, h, r) {
   r = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2)); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
@@ -34,7 +35,7 @@ function sound(kind) {
   try {
     audio ||= wx.createWebAudioContext()
     const osc = audio.createOscillator(), gain = audio.createGain(), now = audio.currentTime
-    const notes = { move: 130, push: 90, apple: 420, cut: 180, nest: 520, win: 660, bump: 70, fail: 58, button: 360, select: 300 }
+    const notes = { move: 130, push: 90, apple: 420, cut: 180, nest: 520, exit: 540, win: 660, bump: 70, fail: 58, button: 360, select: 300 }
     osc.type = kind === 'cut' ? 'sawtooth' : 'sine'; osc.frequency.setValueAtTime(notes[kind] || 140, now)
     if (kind === 'win') osc.frequency.exponentialRampToValueAtTime(990, now + .22)
     gain.gain.setValueAtTime(.055, now); gain.gain.exponentialRampToValueAtTime(.001, now + .18)
@@ -67,11 +68,13 @@ function title() {
 
 function mapScreen() {
   background('#694e43'); controls = []
-  ctx.fillStyle = C.cream; ctx.font = '900 26px sans-serif'; ctx.textAlign = 'left'; ctx.fillText('地下路线', 22, HEADER_Y)
+  const chapters = [...new Set(LEVELS.map(level => level.chapter))], chapterIndex = Math.max(0, Math.min(chapters.length - 1, chapters.indexOf(mapChapter))), chapter = chapters[chapterIndex], entries = LEVELS.map((level, index) => ({ level, index })).filter(entry => entry.level.chapter === chapter)
+  mapChapter = chapter
+  ctx.fillStyle = C.cream; ctx.font = '900 24px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(`${entries[0].level.chapterName} · 第${chapter}章`, 22, HEADER_Y)
   const unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length)
-  const cols = 5, gap = 12, rowGap = 16, rows = Math.ceil(LEVELS.length / cols), startY = HEADER_Y + 24, size = Math.min(70, (W - 44 - gap * 4) / cols, (FOOTER_Y - startY - rowGap * (rows - 1)) / rows), startX = (W - cols * size - gap * 4) / 2
-  LEVELS.forEach((level, i) => {
-    const x = startX + (i % cols) * (size + gap), y = startY + Math.floor(i / cols) * (size + rowGap)
+  const cols = entries.length, gap = 16, size = Math.min(82, (W - 60 - gap * (cols - 1)) / cols, H * .25), startX = (W - cols * size - gap * (cols - 1)) / 2, y = HEADER_Y + 42
+  entries.forEach(({ level, index: i }, card) => {
+    const x = startX + card * (size + gap)
     ctx.fillStyle = i < unlocked ? C.deep : 'rgba(30,25,28,.35)'; rr(x, y, size, size, 17)
     ctx.fillStyle = i < unlocked ? (i === unlocked - 1 ? C.yellow : C.cream) : 'rgba(255,255,255,.3)'; ctx.font = '900 22px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(i < unlocked ? i + 1 : '·', x + size / 2, y + size * .42)
     ctx.font = '11px sans-serif'; ctx.fillText(i < unlocked ? level.name : '未发现', x + size / 2, y + size * .72)
@@ -79,6 +82,8 @@ function mapScreen() {
     if (best) { ctx.fillStyle = 'rgba(255,255,255,.65)'; ctx.font = '9px sans-serif'; ctx.fillText(`${best}步`, x + size / 2, y + size - 6) }
     if (i < unlocked) addControl(x, y, size, size, () => { game.load(i); clearAnimation(); scene = 'play'; transition = 1; sound('select') })
   })
+  if (chapterIndex > 0) button('‹ 上一章', W / 2 - 104, FOOTER_Y - 45, 92, () => { mapChapter = chapters[chapterIndex - 1]; wx.setStorageSync('mapChapter', mapChapter); sound('select') })
+  if (chapterIndex < chapters.length - 1) button('下一章 ›', W / 2 + 12, FOOTER_Y - 45, 92, () => { mapChapter = chapters[chapterIndex + 1]; wx.setStorageSync('mapChapter', mapChapter); sound('select') })
   button('返回标题', 18, FOOTER_Y, 90, () => { scene = 'title' })
   button(directionButtons ? '辅助键：开' : '辅助键：关', W / 2 - 48, FOOTER_Y, 96, () => { directionButtons = !directionButtons; wx.setStorageSync('directionButtons', directionButtons); sound('select') })
   button(muted ? '声音：关' : '声音：开', W - 104, FOOTER_Y, 86, () => { muted = !muted; wx.setStorageSync('muted', muted); if (!muted) sound('select') })
@@ -104,11 +109,12 @@ function object(type, x, y, s, t, active = false) {
     ctx.shadowColor = 'transparent'; ctx.fillStyle = C.white; ctx.beginPath(); ctx.ellipse(cx - s * .035, cy, s * .2, s * .29, -.08, 0, 7); ctx.fill()
     ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.ellipse(cx - s * .09, cy - s * .12, s * .055, s * .1, -.3, 0, 7); ctx.fill()
   }
-  if (type === 'button') {
+  if (['button', 'buddyButton', 'headButton'].includes(type)) {
     if (active) ctx.translate(0, s * .07)
     ctx.fillStyle = '#8e681e'; ctx.beginPath(); ctx.ellipse(cx, cy + s * .17, s * .34, s * .16, 0, 0, 7); ctx.fill()
-    ctx.shadowColor = 'transparent'; ctx.fillStyle = C.yellow; ctx.beginPath(); ctx.ellipse(cx, cy + s * .04, s * .3, s * .16, 0, 0, 7); ctx.fill()
+    ctx.shadowColor = 'transparent'; ctx.fillStyle = type === 'buddyButton' ? '#74d5b1' : type === 'headButton' ? '#8bc7ef' : C.yellow; ctx.beginPath(); ctx.ellipse(cx, cy + s * .04, s * .3, s * .16, 0, 0, 7); ctx.fill()
     ctx.fillStyle = '#ffe783'; ctx.beginPath(); ctx.ellipse(cx - s * .07, cy, s * .13, s * .055, -.15, 0, 7); ctx.fill()
+    if (type !== 'button') { ctx.fillStyle = C.ink; ctx.font = `900 ${Math.max(9, s * .2)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(type === 'buddyButton' ? 'P' : 'H', cx, cy + s * .05) }
     if (active) { ctx.shadowColor = C.yellow; ctx.shadowBlur = s * .3; ctx.strokeStyle = '#ffe783'; ctx.lineWidth = Math.max(2, s * .04); ctx.beginPath(); ctx.arc(cx, cy, s * .36, 0, 7); ctx.stroke() }
   }
   if (type === 'nest') {
@@ -196,8 +202,8 @@ function clearAnimation() { visualWorms = null; motion = null; bumpMotion = null
 function characterFeel(worm, index, now) {
   if (game.won) return { celebrate: true }
   if (now - lastActionAt < 900) return {}
-  const [hx, hy] = worm[0], other = game.worms.map((w, i) => i === index ? null : w[0]).filter(Boolean).sort((a, b) => Math.abs(a[0] - hx) + Math.abs(a[1] - hy) - Math.abs(b[0] - hx) - Math.abs(b[1] - hy))[0]
-  const targets = [...game.apples, ...game.rocks, ...game.eggs, ...game.scissors, ...game.buttons].map(p => p.split(',').map(Number)); if (game.exit) targets.push(game.exit)
+  const [hx, hy] = worm[0], other = game.worms.map((w, i) => i === index || game.isExited(w) ? null : w[0]).filter(Boolean).sort((a, b) => Math.abs(a[0] - hx) + Math.abs(a[1] - hy) - Math.abs(b[0] - hx) - Math.abs(b[1] - hy))[0]
+  const targets = [...game.apples, ...game.rocks, ...game.eggs, ...game.scissors, ...game.buttons, ...game.buddyButtons, ...game.headButtons, ...game.exits].map(p => p.split(',').map(Number))
   const target = other && Math.abs(other[0] - hx) + Math.abs(other[1] - hy) <= 5 ? other : targets.sort((a, b) => Math.abs(a[0] - hx) + Math.abs(a[1] - hy) - Math.abs(b[0] - hx) - Math.abs(b[1] - hy))[0]
   const idle = now - lastActionAt, yawn = idle > 5000 && (idle - 5000) % 5200 < 1400, nearEgg = [...game.eggs].some(p => { const [x, y] = p.split(',').map(Number); return Math.abs(x - hx) + Math.abs(y - hy) <= 2 })
   return { direction: target ? [target[0] - hx, target[1] - hy] : undefined, yawn, nervous: nearEgg }
@@ -215,15 +221,16 @@ function play(time) {
   ctx.fillStyle = C.ridge; game.walls.forEach(p => { const [x, y] = p.split(',').map(Number); rr(ox + x * tile + 2, oy + y * tile + 3, tile - 4, tile - 5, tile * .14); ctx.fillStyle = 'rgba(255,210,185,.07)'; rr(ox + x * tile + 5, oy + y * tile + 5, tile - 10, Math.max(2, tile * .08), tile * .04); ctx.fillStyle = C.ridge })
   const now = Date.now()
   if (failedMotion && now - failedMotion.start >= 230) failedMotion = null
-  const occupied = new Set(game.worms.flat().map(key))
+  const occupied = new Set(game.liveWorms().flat().map(key))
   const each = (set, type) => set.forEach(p => {
     if (pushMotion && pushMotion.type === type && p === pushMotion.to) return
     const [x, y] = p.split(',').map(Number), failed = failedMotion && failedMotion.type === type && failedMotion.position === p, jitter = failed ? Math.sin((now - failedMotion.start) * .16) * tile * .055 * (1 - (now - failedMotion.start) / 230) : 0
-    object(type, ox + x * tile + jitter, oy + y * tile, tile, time, type === 'button' && (game.rocks.has(p) || occupied.has(p)))
+    const entity = game.entityAt.get(p), active = ['button', 'buddyButton', 'headButton'].includes(type) && game.pressureActive(entity.id)
+    object(type, ox + x * tile + jitter, oy + y * tile, tile, time, active)
   })
-  each(game.buttons, 'button'); each(game.nests, 'nest'); each(game.scissors, 'scissors')
+  each(game.buttons, 'button'); each(game.buddyButtons, 'buddyButton'); each(game.headButtons, 'headButton'); each(game.nests, 'nest'); each(game.scissors, 'scissors')
   game.doors.forEach(p => { const [x, y] = p.split(',').map(Number), px = ox + x * tile, py = oy + y * tile, open = game.doorOpen([x, y]); ctx.shadowColor = open ? C.yellow : 'transparent'; ctx.shadowBlur = tile * .35; ctx.fillStyle = open ? 'rgba(244,206,76,.42)' : C.cream; rr(px + tile * .35, py, tile * .3, tile, tile * .09); ctx.shadowColor = 'transparent' })
-  if (game.exit) object('exit', ox + game.exit[0] * tile, oy + game.exit[1] * tile, tile, time, game.won)
+  game.exits.forEach(p => { const [x, y] = p.split(',').map(Number); object('exit', ox + x * tile, oy + y * tile, tile, time, game.won) })
   each(game.apples, 'apple'); each(game.rocks, 'rock'); each(game.eggs, 'egg')
   if (pushMotion) {
     const elapsed = now - pushMotion.start, progress = ease((elapsed - 45) / 105), settle = Math.sin(Math.PI * Math.max(0, Math.min(1, (elapsed - 150) / 45))), x = pushMotion.from[0] + (pushMotion.target[0] - pushMotion.from[0]) * progress, y = pushMotion.from[1] + (pushMotion.target[1] - pushMotion.from[1]) * progress
@@ -241,13 +248,15 @@ function play(time) {
     }))
     if (finished) motion = null
   }
-  const winDuration = 130 + ((game.worms[game.active]?.length || 1) - 1) * 40, winReady = game.won && winAt && now - winAt >= winDuration
+  const exitSuction = game.won && !game.objectives.some(objective => objective.type === 'ALL_EXITS_OCCUPIED')
+  const winDuration = exitSuction ? 130 + ((game.worms[game.active]?.length || 1) - 1) * 40 : 260, winReady = game.won && winAt && now - winAt >= winDuration
   game.worms.forEach((worm, i) => {
+    if (game.isExited(worm)) return
     if (!visualWorms[i] || visualWorms[i].length !== worm.length) visualWorms[i] = copyWorms([worm])[0]
-    const display = copyWorms([visualWorms[i]])[0], activeMotion = motion && i === game.active, headProgress = activeMotion ? Math.max(0, Math.min(1, (now - motion.start - motion.delay) / 105)) : 0
+    const display = copyWorms([visualWorms[i]])[0], activeMotion = motion && i === motion.active, headProgress = activeMotion ? Math.max(0, Math.min(1, (now - motion.start - motion.delay) / 105)) : 0
     let feel = activeMotion ? { direction: motion.direction, turn: motion.turn, amount: Math.sin(Math.PI * headProgress), moving: true, strain: motion.pushed } : {}
     if (!activeMotion) feel = characterFeel(worm, i, now)
-    if (game.won && i === game.active && winAt) { display.forEach((part, j) => { const progress = ease((now - winAt - j * 40) / 130); part[0] += (game.exit[0] - part[0]) * progress; part[1] += (game.exit[1] - part[1]) * progress }); feel = { direction: [game.exit[0] - display[0][0], game.exit[1] - display[0][1]] }; if (winReady) return }
+    if (exitSuction && i === game.active && winAt) { display.forEach((part, j) => { const progress = ease((now - winAt - j * 40) / 130); part[0] += (game.exit[0] - part[0]) * progress; part[1] += (game.exit[1] - part[1]) * progress }); feel = { direction: [game.exit[0] - display[0][0], game.exit[1] - display[0][1]] }; if (winReady) return }
     else if (game.won) display.forEach((part, j) => { part[0] += Math.sin(time / 115 + j * .8 + i) * .07; part[1] += Math.cos(time / 140 + j * .7 + i) * .06 })
     if (bumpMotion && i === game.active) {
       const progress = Math.min(1, (now - bumpMotion.start) / 170), amount = Math.sin(Math.PI * progress)
@@ -257,12 +266,12 @@ function play(time) {
     }
     wormBody(display, i, tile, ox, oy, time, feel)
   })
-  game.worms.forEach((worm, i) => { const [x, y] = worm[0], size = tile * 1.35, offset = (size - tile) / 2; addControl(ox + x * tile - offset, oy + y * tile - offset, size, size, () => { inputQueue = []; game.select(i); wx.setStorageSync('learnedSwitch', 1); sound('select') }) })
+  game.worms.forEach((worm, i) => { if (game.isExited(worm)) return; const [x, y] = worm[0], size = tile * 1.35, offset = (size - tile) / 2; addControl(ox + x * tile - offset, oy + y * tile - offset, size, size, () => { inputQueue = []; game.select(i); wx.setStorageSync('learnedSwitch', 1); sound('select') }) })
   particlesDraw(); ctx.restore()
 
   ctx.fillStyle = C.cream; ctx.font = '800 17px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(`${game.level + 1}. ${game.name}`, 15, HEADER_Y)
   ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(game.message || game.hint, 15, HEADER_Y + 21)
-  ctx.textAlign = 'right'; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴`, W - 15, HEADER_Y)
+  ctx.textAlign = 'right'; ctx.fillText(`${game.moves} 步 · ${game.liveWorms().length}/${game.worms.length} 位未回家`, W - 15, HEADER_Y)
   const utilityX = directionButtons ? 24 : W / 2 - 108, mapX = directionButtons ? W - 69 : utilityX + 160
   button('↶ 撤回一步', utilityX, FOOTER_Y, 86, () => { game.undo(); clearAnimation(); sound('move') }, false, game.history.length === 0)
   button('重开', utilityX + 94, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 56, () => { scene = 'map' })
@@ -291,27 +300,27 @@ function move(direction) {
   lastActionAt = Date.now()
   const interaction = game.interaction(direction)
   if (!visualWorms || visualWorms.length !== game.worms.length) visualWorms = copyWorms(game.worms)
-  const fromById = new Map(), headId = game.worm[0].id, [dx, dy] = DIRS[direction]
+  const fromById = new Map(), movingIndex = game.active, headId = game.worm[0].id, [dx, dy] = DIRS[direction]
   game.worms.forEach((worm, i) => worm.forEach((segment, j) => fromById.set(segment.id, (visualWorms[i]?.[j] || segment).slice())))
   const pushed = ['rock', 'egg'].includes(interaction), pushedFrom = [game.worm[0][0] + dx, game.worm[0][1] + dy]
   const ok = game.move(direction)
   if (ok) {
     const from = game.worms.map(worm => worm.map(segment => (fromById.get(segment.id) || segment.slice()).slice())), to = copyWorms(game.worms)
     const turn = Boolean(lastDirections[headId] && lastDirections[headId] !== direction)
-    visualWorms = copyWorms(from); motion = { from, to, start: Date.now(), delay: pushed ? 45 : turn ? 45 : 0, direction: [dx, dy], turn, pushed }
+    visualWorms = copyWorms(from); motion = { from, to, active: movingIndex, start: Date.now(), delay: pushed ? 45 : turn ? 45 : 0, direction: [dx, dy], turn, pushed }
     if (pushed) pushMotion = { type: interaction, from: pushedFrom, target: [pushedFrom[0] + dx, pushedFrom[1] + dy], to: key([pushedFrom[0] + dx, pushedFrom[1] + dy]), start: Date.now() }
     lastDirections[headId] = direction
   } else { bumpMotion = { start: Date.now(), direction: [dx, dy] }; failedMotion = pushed ? { start: Date.now(), type: interaction, position: key(pushedFrom) } : null; inputQueue = [] }
   if (ok) wx.setStorageSync('learnedSwipe', 1)
   sound(ok ? game.event : pushed ? 'fail' : 'bump'); if (ok && game.buttonChanged) sound('button'); if (!ok || game.event === 'cut') { shake = game.event === 'cut' ? 11 : 4; try { wx.vibrateShort({ type: game.event === 'cut' ? 'heavy' : 'light' }) } catch (_) {} }
   if (ok) {
-    const h = game.worms[game.active][0], px = boardLayout.ox + (h[0] + .5) * boardLayout.tile, py = boardLayout.oy + (h[1] + .5) * boardLayout.tile; burst(px, py, game.event === 'apple' ? '#e64b59' : C.pink, game.event === 'cut' ? 25 : 5)
+    const h = game.worms[movingIndex][0], px = boardLayout.ox + (h[0] + .5) * boardLayout.tile, py = boardLayout.oy + (h[1] + .5) * boardLayout.tile; burst(px, py, game.event === 'apple' ? '#e64b59' : C.pink, game.event === 'cut' ? 25 : 5)
     if (game.won) {
       winAt = Date.now()
       const unlocked = Math.max(Number(wx.getStorageSync('unlocked')) || 1, Math.min(LEVELS.length, game.level + 2)); wx.setStorageSync('unlocked', unlocked)
       const best = Number(wx.getStorageSync(`best_${game.level}`)) || Infinity; if (game.moves < best) wx.setStorageSync(`best_${game.level}`, game.moves)
     }
-    if (['cut', 'win', 'nest'].includes(game.event)) inputQueue = []
+    if (['cut', 'exit', 'win', 'nest'].includes(game.event)) inputQueue = []
   }
   return ok
 }

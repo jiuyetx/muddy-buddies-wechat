@@ -6,8 +6,9 @@ const LEVELS = require('./levels')
 const TILE_TYPES = {
   '#': ['walls', 'WALL', ['BlockingComponent']], A: ['apples', 'APPLE', ['CollectibleComponent']], R: ['rocks', 'ROCK', ['CarryableComponent', 'BlockingComponent']],
   B: ['buttons', 'PRESSURE', ['TriggerComponent', 'PressurePlateComponent']], D: ['doors', 'DOOR', ['DoorComponent', 'BlockingComponent']],
+  P: ['buddyButtons', 'BUDDY_PRESSURE', ['TriggerComponent', 'BuddyPressurePlateComponent']], H: ['headButtons', 'HEAD_PRESSURE', ['TriggerComponent', 'HeadPressurePlateComponent']],
   S: ['scissors', 'SCISSORS', ['SplitPointComponent']], N: ['nests', 'NEST', ['TriggerComponent']], E: ['eggs', 'EGG', ['CarryableComponent', 'FragileComponent']],
-  X: ['exit', 'EXIT', ['ExitComponent']]
+  X: ['exits', 'EXIT', ['ExitComponent']]
 }
 
 class Segment {
@@ -20,12 +21,12 @@ class Segment {
 }
 
 function parseLevel(source) {
-  const state = { walls: [], apples: [], rocks: [], buttons: [], doors: [], scissors: [], nests: [], eggs: [], exit: null, entityById: new Map(), entityAt: new Map() }
+  const state = { walls: [], apples: [], rocks: [], buttons: [], buddyButtons: [], headButtons: [], doors: [], scissors: [], nests: [], eggs: [], exits: [], entityById: new Map(), entityAt: new Map() }
   source.tiles.forEach((row, y) => [...row].forEach((cell, x) => {
     const definition = TILE_TYPES[cell]; if (!definition) return
     const [collection, type, components] = definition, position = [x, y], id = `${type.toLowerCase()}_${x}_${y}`, entity = { id, type, position, components }
     state.entityById.set(id, entity); state.entityAt.set(key(position), entity)
-    if (collection === 'exit') state.exit = position; else state[collection].push(key(position))
+    state[collection].push(key(position))
   }))
   return state
 }
@@ -50,7 +51,9 @@ class Game {
     this.worms = source.entities.filter(entity => entity.type === 'WORM').map(entity => this.makeWorm(entity.segments))
     this.relink()
     this.active = 0
-    Object.keys(parsed).forEach(name => { this[name] = Array.isArray(parsed[name]) && name !== 'exit' ? new Set(parsed[name]) : parsed[name] })
+    Object.keys(parsed).forEach(name => { this[name] = Array.isArray(parsed[name]) ? new Set(parsed[name]) : parsed[name] })
+    this.exit = [...this.exits][0]?.split(',').map(Number) || null
+    this.exited = new Set()
     this.history = []
     this.moves = 0
     this.won = false
@@ -62,9 +65,13 @@ class Game {
 
   get worm() { return this.worms[this.active] }
   set worm(value) { this.worms[this.active] = this.makeWorm(value); this.relink() }
+  isExited(worm) { return this.exited.has(worm[0].id) }
+  liveWorms() { return this.worms.filter(worm => !this.isExited(worm)) }
   pressureActive(entityId) {
     const entity = this.entityById.get(entityId); if (!entity) return false
-    const occupied = new Set(this.worms.flat().map(key)), position = key(entity.position)
+    const occupied = new Set(this.liveWorms().flat().map(key)), heads = new Set(this.liveWorms().map(worm => key(worm[0]))), position = key(entity.position)
+    if (entity.type === 'BUDDY_PRESSURE') return occupied.has(position)
+    if (entity.type === 'HEAD_PRESSURE') return heads.has(position)
     return occupied.has(position) || this.rocks.has(position)
   }
   doorOpen(position) {
@@ -77,18 +84,18 @@ class Game {
 
   snapshot() {
     const worms = this.worms.map(worm => worm.map(({ x, y, id, state }) => ({ x, y, id, state: copy(state) })))
-    return { worms, nextSegmentId: this.nextSegmentId, active: this.active, apples: [...this.apples], rocks: [...this.rocks], eggs: [...this.eggs], moves: this.moves, won: this.won, eggDelivered: this.eggDelivered }
+    return { worms, nextSegmentId: this.nextSegmentId, active: this.active, exited: [...this.exited], apples: [...this.apples], rocks: [...this.rocks], eggs: [...this.eggs], moves: this.moves, won: this.won, eggDelivered: this.eggDelivered }
   }
 
   restore(state) {
-    this.nextSegmentId = state.nextSegmentId; this.worms = state.worms.map(worm => this.makeWorm(worm)); this.active = state.active; this.relink()
+    this.nextSegmentId = state.nextSegmentId; this.worms = state.worms.map(worm => this.makeWorm(worm)); this.active = state.active; this.exited = new Set(state.exited || []); this.relink()
     this.apples = new Set(state.apples); this.rocks = new Set(state.rocks); this.eggs = new Set(state.eggs)
     this.moves = state.moves; this.won = state.won; this.eggDelivered = state.eggDelivered
     this.message = ''; this.event = 'undo'; this.buttonChanged = false
   }
 
   undo() { if (this.history.length) { this.restore(this.history.pop()); return true } return false }
-  select(index) { if (index >= 0 && index < this.worms.length) { this.active = index; this.event = 'select'; return true } return false }
+  select(index) { if (index >= 0 && index < this.worms.length && !this.isExited(this.worms[index])) { this.active = index; this.event = 'select'; return true } return false }
 
   makeWorm(parts) {
     return parts.map(part => part instanceof Segment ? part : new Segment(part.x ?? part[0], part.y ?? part[1], part.id || `segment-${this.nextSegmentId++}`, part.state))
@@ -98,7 +105,7 @@ class Game {
     this.worms.forEach(worm => worm.forEach((segment, i) => { segment.previous = worm[i - 1]?.id || null; segment.next = worm[i + 1]?.id || null }))
   }
 
-  segmentAt(position) { return this.worms.flat().find(segment => key(segment) === key(position)) || null }
+  segmentAt(position) { return this.liveWorms().flat().find(segment => key(segment) === key(position)) || null }
   setSegmentState(id, state) { const segment = this.worms.flat().find(part => part.id === id); if (!segment) return false; Object.assign(segment.state, state); return true }
 
   cut(wormIndex, connectionIndex) {
@@ -121,7 +128,7 @@ class Game {
 
   blocked(p, movingTail) {
     const target = key(p)
-    const bodies = new Set(this.worms.flat().map(key))
+    const bodies = new Set(this.liveWorms().flat().map(key))
     if (movingTail) bodies.delete(key(movingTail))
     return this.walls.has(target) || bodies.has(target) || this.rocks.has(target) || this.eggs.has(target) || (this.doors.has(target) && !this.doorOpen(p))
   }
@@ -129,25 +136,26 @@ class Game {
   objectiveComplete(objective, target) {
     if (objective.type === 'COLLECT_ALL_APPLES') return this.apples.size === 0
     if (objective.type === 'DELIVER_ALL_EGGS') return this.eggs.size === 0
-    if (objective.type === 'REACH_EXIT') return this.exit && target === key(this.exit)
-    if (objective.type === 'ALL_CHARACTERS_EXIT') return this.exit && this.worms.every(worm => key(worm[0]) === key(this.exit))
+    if (objective.type === 'REACH_EXIT') return this.exits.has(target)
+    if (objective.type === 'ALL_CHARACTERS_EXIT') return this.exited.size === this.worms.length
+    if (objective.type === 'ALL_EXITS_OCCUPIED') { const heads = new Set(this.liveWorms().map(worm => key(worm[0]))); return [...this.exits].every(exit => heads.has(exit)) }
     return false
   }
 
   interaction(direction) {
-    if (this.won || !DIRS[direction]) return 'blocked'
+    if (this.won || this.isExited(this.worm) || !DIRS[direction]) return 'blocked'
     const [dx, dy] = DIRS[direction], [hx, hy] = this.worm[0], next = [hx + dx, hy + dy], target = key(next)
     if (this.eggs.has(target)) return 'egg'
     if (this.rocks.has(target)) return 'rock'
     if (this.scissors.has(target)) return 'scissors'
-    if (this.exit && target === key(this.exit)) return 'exit'
+    if (this.exits.has(target)) return 'exit'
     if (this.apples.has(target)) return 'apple'
     const tail = this.worm[this.worm.length - 1]
     return this.blocked(next, tail) ? 'blocked' : 'move'
   }
 
   move(direction) {
-    if (this.won || !DIRS[direction]) return false
+    if (this.won || this.isExited(this.worm) || !DIRS[direction]) return false
     this.buttonChanged = false
     const [dx, dy] = DIRS[direction]
     const [hx, hy] = this.worm[0]
@@ -185,9 +193,11 @@ class Game {
     this.buttonChanged = doorsWereOpen !== this.doorsOpen
     if (this.buttonChanged && !this.message) this.message = this.doorsOpen ? '咔哒！门打开了' : '按钮弹起来了'
 
+    if (this.objectives.some(objective => objective.type === 'ALL_CHARACTERS_EXIT') && this.exits.has(target)) { this.exited.add(this.worm[0].id); this.event = 'exit'; this.message = '一位伙伴先回家了'; const nextActive = this.worms.findIndex(worm => !this.isExited(worm)); if (nextActive >= 0) this.active = nextActive }
+
     if (this.objectives.every(objective => this.objectiveComplete(objective, target))) { this.won = true; this.event = 'win' }
-    else if (this.exit && target === key(this.exit) && this.eggs.size) this.message = '还有一枚蛋没有回家'
-    else if (this.exit && target === key(this.exit) && this.apples.size) this.message = '还有果子没有吃完'
+    else if (this.exits.has(target) && this.eggs.size) this.message = '还有一枚蛋没有回家'
+    else if (this.exits.has(target) && this.apples.size) this.message = '还有果子没有吃完'
     return true
   }
 }
