@@ -69,9 +69,9 @@ function mapScreen() {
   background('#694e43'); controls = []
   ctx.fillStyle = C.cream; ctx.font = '900 26px sans-serif'; ctx.textAlign = 'left'; ctx.fillText('地下路线', 22, HEADER_Y)
   const unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length)
-  const cols = 5, gap = 12, size = Math.min(72, (W - 44 - gap * 4) / cols), startX = (W - cols * size - gap * 4) / 2, startY = HEADER_Y + 24
+  const cols = 5, gap = 12, rowGap = 16, rows = Math.ceil(LEVELS.length / cols), startY = HEADER_Y + 24, size = Math.min(70, (W - 44 - gap * 4) / cols, (FOOTER_Y - startY - rowGap * (rows - 1)) / rows), startX = (W - cols * size - gap * 4) / 2
   LEVELS.forEach((level, i) => {
-    const x = startX + (i % cols) * (size + gap), y = startY + Math.floor(i / cols) * (size + 26)
+    const x = startX + (i % cols) * (size + gap), y = startY + Math.floor(i / cols) * (size + rowGap)
     ctx.fillStyle = i < unlocked ? C.deep : 'rgba(30,25,28,.35)'; rr(x, y, size, size, 17)
     ctx.fillStyle = i < unlocked ? (i === unlocked - 1 ? C.yellow : C.cream) : 'rgba(255,255,255,.3)'; ctx.font = '900 22px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(i < unlocked ? i + 1 : '·', x + size / 2, y + size * .42)
     ctx.font = '11px sans-serif'; ctx.fillText(i < unlocked ? level.name : '未发现', x + size / 2, y + size * .72)
@@ -205,7 +205,7 @@ function characterFeel(worm, index, now) {
 
 function play(time) {
   controls = []; ctx.save(); if (shake > 0) { ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake *= .82 }
-  background(game.chapter === '苔藓庭院' ? '#65735b' : game.chapter === '更深的家' ? '#584158' : C.dirt)
+  background(game.chapter === '苔藓庭院' ? '#65735b' : game.chapter === '曲根回廊' ? '#735644' : game.chapter === '深处的家' ? '#584158' : C.dirt)
   const top = HEADER_Y + 31, bottom = 49 + SAFE_BOTTOM, tile = Math.floor(Math.min((W - 24) / game.w, (H - top - bottom) / game.h)), ox = Math.floor((W - game.w * tile) / 2), oy = top + Math.floor((H - top - bottom - game.h * tile) / 2)
   boardLayout = { tile, ox, oy }
   ctx.fillStyle = C.tunnel; for (let y = 0; y < game.h; y++) for (let x = 0; x < game.w; x++) if (!game.walls.has(key([x, y]))) {
