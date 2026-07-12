@@ -2,7 +2,7 @@ const { Game, LEVELS, DIRS, key } = require('./core')
 const { resolveSwipe } = require('./input')
 
 const sys = wx.getSystemInfoSync()
-const W = sys.windowWidth, H = sys.windowHeight, DPR = sys.pixelRatio || 1
+const W = sys.windowWidth, H = sys.windowHeight, DPR = Math.min(sys.pixelRatio || 1, 2)
 const safe = sys.safeArea || { top: 0, bottom: H }
 let capsule = null
 try { capsule = wx.getMenuButtonBoundingClientRect() } catch (_) {}
@@ -24,6 +24,7 @@ let audio
 let muted = Boolean(wx.getStorageSync('muted'))
 let directionButtons = Boolean(wx.getStorageSync('directionButtons'))
 let mapScrollY = 0, mapVelocityY = 0, mapDragging = false, mapNeedsFocus = true
+let appVisible = true, frameTimer = null, renderToken = 0
 const MAP_GAP = Math.max(92, Math.min(124, H * .27)), MAP_TOP = 90, MAP_VIEW_TOP = SAFE_TOP + 42, MAP_VIEW_BOTTOM = FOOTER_Y - 12
 
 function rr(x, y, w, h, r) {
@@ -367,14 +368,14 @@ function move(direction) {
   return ok
 }
 
-function tap(x, y) { const c = [...controls].reverse().find(v => x >= v.x && x <= v.x + v.w && y >= v.y && y <= v.y + v.h); if (c) c.action() }
+function tap(x, y) { const c = [...controls].reverse().find(v => x >= v.x && x <= v.x + v.w && y >= v.y && y <= v.y + v.h); if (c) { c.action(); scheduleFrame() } }
 function copyWorms(worms) { return worms.map(worm => worm.map(part => part.slice())) }
 function swipeDirection(t) {
   return resolveSwipe(t.clientX - touch.x, t.clientY - touch.y, W)
 }
-function enqueue(direction) { const now = Date.now(); if (scene !== 'play' || game.won || inputQueue.length >= 2 || (direction === lastQueuedDirection && now - lastQueuedAt < 80)) return; inputQueue.push(direction); lastQueuedDirection = direction; lastQueuedAt = now }
+function enqueue(direction) { const now = Date.now(); if (scene !== 'play' || game.won || inputQueue.length >= 2 || (direction === lastQueuedDirection && now - lastQueuedAt < 80)) return; inputQueue.push(direction); lastQueuedDirection = direction; lastQueuedAt = now; scheduleFrame() }
 function consumeInput() { if (!motion && !pushMotion && !bumpMotion && inputQueue.length && !game.won) move(inputQueue.shift()) }
-wx.onTouchStart(e => { const t = e.touches[0], ui = controls.some(c => c.blockSwipe && t.clientX >= c.x && t.clientX <= c.x + c.w && t.clientY >= c.y && t.clientY <= c.y + c.h), now = Date.now(); lastActionAt = now; touch = { x: t.clientX, y: t.clientY, lastY: t.clientY, lastAt: now, ui }; mapDragging = scene === 'map' && !ui; if (mapDragging) mapVelocityY = 0 })
+wx.onTouchStart(e => { const t = e.touches[0], ui = controls.some(c => c.blockSwipe && t.clientX >= c.x && t.clientX <= c.x + c.w && t.clientY >= c.y && t.clientY <= c.y + c.h), now = Date.now(); lastActionAt = now; touch = { x: t.clientX, y: t.clientY, lastY: t.clientY, lastAt: now, ui }; mapDragging = scene === 'map' && !ui; if (mapDragging) { mapVelocityY = 0; scheduleFrame() } })
 wx.onTouchMove(e => {
   if (!touch || scene !== 'map' || touch.ui) return
   const t = e.touches[0], now = Date.now(), dy = t.clientY - touch.lastY, elapsed = Math.max(1, now - touch.lastAt), max = mapMaxScroll()
@@ -391,11 +392,10 @@ wx.onTouchEnd(e => {
 wx.onTouchCancel(() => { mapDragging = false; touch = null })
 
 try {
-  wx.setKeepScreenOn({ keepScreenOn: true })
   wx.showShareMenu({ menus: ['shareAppMessage'] })
   wx.onShareAppMessage(() => ({ title: '一条身体，两颗脑袋？来帮泥土小伙伴回家' }))
-  wx.onHide(() => { wx.setStorageSync('caveLevel', game.level) })
-  wx.onShow(() => { if (audio && audio.state === 'suspended') audio.resume() })
+  wx.onHide(() => { appVisible = false; renderToken++; clearTimeout(frameTimer); wx.setStorageSync('caveLevel', game.level); if (audio?.state === 'running') audio.suspend() })
+  wx.onShow(() => { appVisible = true; if (audio?.state === 'suspended') audio.resume(); scheduleFrame() })
   if (wx.onKeyDown) wx.onKeyDown(({ key }) => {
     const keys = { ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down', ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right' }
     if (scene === 'play' && keys[key]) enqueue(keys[key])
@@ -403,7 +403,17 @@ try {
   })
 } catch (_) {}
 
-function loop(time) {
-  if (scene === 'title') title(); else if (scene === 'map') mapScreen(time); else { play(time); consumeInput() } requestAnimationFrame(loop)
+function activeAnimation() {
+  return transition > 0 || motion || bumpMotion || pushMotion || failedMotion || particles.length || shake > .1 || inputQueue.length || (scene === 'map' && (mapDragging || Math.abs(mapVelocityY) > .1))
 }
-loop(0)
+
+function scheduleFrame(delay = 0) {
+  clearTimeout(frameTimer); const token = renderToken
+  frameTimer = setTimeout(() => requestAnimationFrame(time => { if (appVisible && token === renderToken) loop(time) }), delay)
+}
+
+function loop(time) {
+  if (scene === 'title') title(); else if (scene === 'map') mapScreen(time); else { play(time); consumeInput() }
+  scheduleFrame(activeAnimation() ? 0 : scene === 'title' ? 250 : 67)
+}
+scheduleFrame()
