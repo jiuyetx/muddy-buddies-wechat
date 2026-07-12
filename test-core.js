@@ -110,10 +110,10 @@ assert.equal(manualCut.worms[1][manualCut.worms[1].length - 1].id, joined)
 assert.equal(manualCut.worms[0][manualCut.worms[0].length - 1].next, null)
 
 const buddyPlate = new Game(20)
-buddyPlate.rocks.add('8,1')
-assert.equal(buddyPlate.pressureActive('buddy_pressure_8_1'), false)
-buddyPlate.worm = [[7, 1], [8, 1]]
-assert.equal(buddyPlate.pressureActive('buddy_pressure_8_1'), true)
+buddyPlate.rocks.add('3,1')
+assert.equal(buddyPlate.pressureActive('buddy_pressure_3_1'), false)
+buddyPlate.worm = [[2, 1], [3, 1]]
+assert.equal(buddyPlate.pressureActive('buddy_pressure_3_1'), true)
 
 const headPlate = new Game(21)
 headPlate.worm = [[3, 2], [3, 1]]
