@@ -16,7 +16,7 @@ assert.equal(resolveSwipe(70, 45, 800), 'right')
 assert.equal(resolveSwipe(43, 75, 800), 'down')
 assert.equal(resolveSwipe(70, 68, 800), null)
 assert.equal(LEVELS.length, 30)
-const tokenType = { B: 'pressure', P: 'buddy_pressure', H: 'head_pressure', D: 'door' }
+const tokenType = { B: 'pressure', P: 'buddy_pressure', H: 'head_pressure', '+': 'conductor', D: 'door' }
 LEVELS.forEach(level => {
   assert(level.tiles.every(row => row.length === level.width), `${level.id} row width mismatch`)
   if (level.chapter >= 6 && level.id !== '6-01') assert(level.width >= 18 && level.width <= 24 && level.height >= 7 && level.height <= 10, `${level.id} should use the 18-22 x 7-9 standard or the 24 x 10 special size`)
@@ -143,4 +143,33 @@ const exits = [...occupiedExits.exits].map(exit => exit.split(',').map(Number))
 occupiedExits.worms = exits.map(([x, y]) => occupiedExits.makeWorm([[x, y]]))
 occupiedExits.relink()
 assert.equal(occupiedExits.objectiveComplete({ type: 'ALL_EXITS_OCCUPIED' }), true)
+
+const shortGate = new Game(0)
+shortGate.shortGates.add('3,3')
+assert.equal(shortGate.interaction('right'), 'blocked')
+shortGate.worm = [[2, 3], [2, 2]]
+assert.equal(shortGate.move('right'), true)
+
+const longGate = new Game(0)
+longGate.longGates.add('3,3')
+assert.equal(longGate.interaction('right'), 'blocked')
+longGate.worm = [[2, 3], [2, 2], [3, 2], [4, 2]]
+assert.equal(longGate.move('right'), true)
+
+const circuit = new Game(5)
+circuit.worm = [[2, 3], [2, 2]]
+circuit.entityById.set('conductor_a', { id: 'conductor_a', type: 'CONDUCTOR', position: [2, 3] })
+circuit.entityById.set('conductor_b', { id: 'conductor_b', type: 'CONDUCTOR', position: [2, 2] })
+circuit.links = [{ source: 'conductor_a', target: 'door_7_2' }, { source: 'conductor_b', target: 'door_7_2' }]
+assert.equal(circuit.doorOpen([7, 2]), true)
+circuit.worm = [[2, 3], [1, 3]]
+assert.equal(circuit.doorOpen([7, 2]), false)
+
+const fusion = new Game(0)
+fusion.worms = [fusion.makeWorm([[2, 2], [1, 2]]), fusion.makeWorm([[3, 2], [4, 2]])]
+fusion.fusions.add('2,2'); fusion.relink()
+assert.equal(fusion.fuse(), true)
+assert.deepEqual(positions(fusion.worm), [[1, 2], [2, 2], [3, 2], [4, 2]])
+assert.equal(fusion.undo(), true)
+assert.equal(fusion.worms.length, 2)
 console.log('core checks passed')

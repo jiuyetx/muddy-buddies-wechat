@@ -149,6 +149,15 @@ function object(type, x, y, s, t, active = false) {
     ctx.shadowColor = 'transparent'; ctx.fillStyle = C.white; ctx.beginPath(); ctx.ellipse(cx - s * .035, cy, s * .2, s * .29, -.08, 0, 7); ctx.fill()
     ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.ellipse(cx - s * .09, cy - s * .12, s * .055, s * .1, -.3, 0, 7); ctx.fill()
   }
+  if (type === 'conductor') {
+    ctx.shadowColor = 'transparent'; ctx.strokeStyle = active ? C.yellow : '#7fe1e8'; ctx.lineWidth = s * .13; ctx.beginPath(); ctx.arc(cx, cy, s * .24, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx - s * .14, cy); ctx.lineTo(cx + s * .14, cy); ctx.moveTo(cx, cy - s * .14); ctx.lineTo(cx, cy + s * .14); ctx.stroke()
+  }
+  if (type === 'fusion') {
+    ctx.fillStyle = '#c68cff'; ctx.beginPath(); ctx.arc(cx, cy, s * .25, 0, 7); ctx.fill(); ctx.shadowColor = 'transparent'; ctx.fillStyle = C.cream; ctx.font = `900 ${s * .25}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('M', cx, cy)
+  }
+  if (type === 'shortGate' || type === 'longGate') {
+    ctx.fillStyle = type === 'shortGate' ? '#86d8a0' : '#d6a36b'; rr(x + s * .18, y + s * .08, s * .64, s * .84, s * .14); ctx.shadowColor = 'transparent'; ctx.fillStyle = C.ink; ctx.font = `900 ${s * .24}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(type === 'shortGate' ? '≤2' : '≥4', cx, cy)
+  }
   if (['button', 'buddyButton', 'headButton'].includes(type)) {
     if (active) ctx.translate(0, s * .07)
     ctx.fillStyle = '#8e681e'; ctx.beginPath(); ctx.ellipse(cx, cy + s * .17, s * .34, s * .16, 0, 0, 7); ctx.fill()
@@ -270,6 +279,7 @@ function play(time) {
     object(type, ox + x * tile + jitter, oy + y * tile, tile, time, active)
   })
   each(game.buttons, 'button'); each(game.buddyButtons, 'buddyButton'); each(game.headButtons, 'headButton'); each(game.nests, 'nest'); each(game.scissors, 'scissors')
+  each(game.conductors, 'conductor'); each(game.fusions, 'fusion'); each(game.shortGates, 'shortGate'); each(game.longGates, 'longGate')
   game.doors.forEach(p => { const [x, y] = p.split(',').map(Number), px = ox + x * tile, py = oy + y * tile, open = game.doorOpen([x, y]); ctx.shadowColor = open ? C.yellow : 'transparent'; ctx.shadowBlur = tile * .35; ctx.fillStyle = open ? 'rgba(244,206,76,.42)' : C.cream; rr(px + tile * .35, py, tile * .3, tile, tile * .09); ctx.shadowColor = 'transparent' })
   game.exits.forEach(p => { const [x, y] = p.split(',').map(Number); object('exit', ox + x * tile, oy + y * tile, tile, time, game.won) })
   each(game.apples, 'apple'); each(game.rocks, 'rock'); each(game.eggs, 'egg')
@@ -318,6 +328,7 @@ function play(time) {
   const utilityX = directionButtons ? 24 : W / 2 - 108, mapX = directionButtons ? W - 69 : utilityX + 160
   button('↶ 撤回一步', utilityX, FOOTER_Y, 86, () => { game.undo(); clearAnimation(); sound('move') }, false, game.history.length === 0)
   button('重开', utilityX + 94, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 56, () => { scene = 'map'; mapNeedsFocus = true })
+  if (game.canFuse()) button('融合', W - 132, FOOTER_Y - 44, 64, () => { game.fuse(); clearAnimation(); sound('cut') }, true)
   if (directionButtons) { const directions = [['←','left'], ['↑','up'], ['↓','down'], ['→','right']], start = W / 2 - 81; directions.forEach(([label, direction], i) => button(label, start + i * 42, FOOTER_Y, 36, () => enqueue(direction))) }
 
   if (game.level === 0 && game.moves === 0 && !wx.getStorageSync('learnedSwipe')) {

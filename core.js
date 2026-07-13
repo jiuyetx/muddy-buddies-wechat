@@ -7,6 +7,8 @@ const TILE_TYPES = {
   '#': ['walls', 'WALL', ['BlockingComponent']], A: ['apples', 'APPLE', ['CollectibleComponent']], R: ['rocks', 'ROCK', ['CarryableComponent', 'BlockingComponent']],
   B: ['buttons', 'PRESSURE', ['TriggerComponent', 'PressurePlateComponent']], D: ['doors', 'DOOR', ['DoorComponent', 'BlockingComponent']],
   P: ['buddyButtons', 'BUDDY_PRESSURE', ['TriggerComponent', 'BuddyPressurePlateComponent']], H: ['headButtons', 'HEAD_PRESSURE', ['TriggerComponent', 'HeadPressurePlateComponent']],
+  '+': ['conductors', 'CONDUCTOR', ['TriggerComponent', 'ConductorComponent']], M: ['fusions', 'FUSION', ['FusionComponent']],
+  '2': ['shortGates', 'SHORT_GATE', ['LengthGateComponent']], '4': ['longGates', 'LONG_GATE', ['LengthGateComponent']],
   S: ['scissors', 'SCISSORS', ['SplitPointComponent']], N: ['nests', 'NEST', ['TriggerComponent']], E: ['eggs', 'EGG', ['CarryableComponent', 'FragileComponent']],
   X: ['exits', 'EXIT', ['ExitComponent']]
 }
@@ -21,7 +23,7 @@ class Segment {
 }
 
 function parseLevel(source) {
-  const state = { walls: [], apples: [], rocks: [], buttons: [], buddyButtons: [], headButtons: [], doors: [], scissors: [], nests: [], eggs: [], exits: [], entityById: new Map(), entityAt: new Map() }
+  const state = { walls: [], apples: [], rocks: [], buttons: [], buddyButtons: [], headButtons: [], conductors: [], fusions: [], shortGates: [], longGates: [], doors: [], scissors: [], nests: [], eggs: [], exits: [], entityById: new Map(), entityAt: new Map() }
   source.tiles.forEach((row, y) => [...row].forEach((cell, x) => {
     const definition = TILE_TYPES[cell]; if (!definition) return
     const [collection, type, components] = definition, position = [x, y], id = `${type.toLowerCase()}_${x}_${y}`, entity = { id, type, position, components }
@@ -76,7 +78,9 @@ class Game {
   }
   doorOpen(position) {
     const door = this.entityAt.get(key(position)), incoming = this.links.filter(link => link.target === door?.id)
-    return incoming.length > 0 && incoming.every(link => link.mode === 'WHILE_ACTIVE' && this.pressureActive(link.source))
+    const conductors = incoming.filter(link => this.entityById.get(link.source)?.type === 'CONDUCTOR').map(link => this.entityById.get(link.source).position)
+    const circuit = !conductors.length || this.liveWorms().some(worm => { const body = new Set(worm.map(key)); return conductors.every(position => body.has(key(position))) })
+    return incoming.length > 0 && circuit && incoming.every(link => this.entityById.get(link.source)?.type === 'CONDUCTOR' || (link.mode === 'WHILE_ACTIVE' && this.pressureActive(link.source)))
   }
   get doorsOpen() {
     return this.doors.size > 0 && [...this.doors].every(position => this.doorOpen(position.split(',').map(Number)))
@@ -116,6 +120,19 @@ class Game {
     return true
   }
 
+  canFuse(first = this.active, second = this.worms.findIndex((worm, i) => i !== first && !this.isExited(worm) && Math.abs(worm[0].x - this.worms[first][0].x) + Math.abs(worm[0].y - this.worms[first][0].y) === 1)) {
+    if (second < 0 || !this.worms[first] || !this.worms[second]) return false
+    const a = this.worms[first][0], b = this.worms[second][0]
+    return (this.fusions.has(key(a)) || this.fusions.has(key(b))) && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1
+  }
+
+  fuse(first = this.active, second) {
+    if (second === undefined) second = this.worms.findIndex((worm, i) => i !== first && this.canFuse(first, i))
+    if (!this.canFuse(first, second)) return false
+    this.history.push(this.snapshot()); this.worms[first] = [...this.worms[first]].reverse().concat(this.worms[second]); this.worms.splice(second, 1); this.active = second < first ? first - 1 : first
+    this.moves++; this.relink(); this.event = 'fuse'; this.message = '伙伴们重新连在一起了'; return true
+  }
+
   splitAtScissors() {
     const worm = this.worm
     const cut = worm.findIndex((part, i) => i >= 2 && i <= worm.length - 2 && this.scissors.has(key(part)))
@@ -126,11 +143,11 @@ class Game {
     return true
   }
 
-  blocked(p, movingTail) {
+  blocked(p, movingTail, worm = null) {
     const target = key(p)
     const bodies = new Set(this.liveWorms().flat().map(key))
     if (movingTail) bodies.delete(key(movingTail))
-    return this.walls.has(target) || bodies.has(target) || this.rocks.has(target) || this.eggs.has(target) || (this.doors.has(target) && !this.doorOpen(p))
+    return this.walls.has(target) || bodies.has(target) || this.rocks.has(target) || this.eggs.has(target) || this.shortGates.has(target) && (!worm || worm.length > 2) || this.longGates.has(target) && (!worm || worm.length < 4) || (this.doors.has(target) && !this.doorOpen(p))
   }
 
   objectiveComplete(objective, target) {
@@ -151,7 +168,7 @@ class Game {
     if (this.exits.has(target)) return 'exit'
     if (this.apples.has(target)) return 'apple'
     const tail = this.worm[this.worm.length - 1]
-    return this.blocked(next, tail) ? 'blocked' : 'move'
+    return this.blocked(next, tail, this.worm) ? 'blocked' : 'move'
   }
 
   move(direction) {
@@ -169,7 +186,7 @@ class Game {
     if (pushesRock || pushesEgg) {
       const beyond = [next[0] + dx, next[1] + dy]
       if (this.blocked(beyond, tail)) { this.message = pushesEgg ? '蛋壳很薄，不能硬挤' : '石头后面没有空间'; this.event = 'bump'; return false }
-    } else if (this.blocked(next, tail)) { this.message = '这边过不去'; this.event = 'bump'; return false }
+    } else if (this.blocked(next, tail, this.worm)) { this.message = '这边过不去'; this.event = 'bump'; return false }
 
     const doorsWereOpen = this.doorsOpen
     this.history.push(this.snapshot())
