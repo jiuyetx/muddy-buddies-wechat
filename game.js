@@ -153,7 +153,24 @@ function object(type, x, y, s, t, active = false) {
     ctx.shadowColor = 'transparent'; ctx.strokeStyle = active ? C.yellow : '#7fe1e8'; ctx.lineWidth = s * .13; ctx.beginPath(); ctx.arc(cx, cy, s * .24, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx - s * .14, cy); ctx.lineTo(cx + s * .14, cy); ctx.moveTo(cx, cy - s * .14); ctx.lineTo(cx, cy + s * .14); ctx.stroke()
   }
   if (type === 'fusion') {
-    ctx.fillStyle = '#c68cff'; ctx.beginPath(); ctx.arc(cx, cy, s * .25, 0, 7); ctx.fill(); ctx.shadowColor = 'transparent'; ctx.fillStyle = C.cream; ctx.font = `900 ${s * .25}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('M', cx, cy)
+    const bloom = 1 + Math.sin(t / 360) * .055
+    ctx.shadowColor = 'transparent'
+    ctx.strokeStyle = '#4f7b4d'; ctx.lineWidth = Math.max(2, s * .065); ctx.lineCap = 'round'
+    ctx.beginPath(); ctx.moveTo(cx, cy + s * .13); ctx.quadraticCurveTo(cx + s * .02, cy + s * .3, cx - s * .03, cy + s * .42); ctx.stroke()
+    ctx.fillStyle = '#6fa760'; ctx.beginPath(); ctx.ellipse(cx + s * .09, cy + s * .31, s * .13, s * .07, -.45, 0, 7); ctx.fill()
+    ctx.save(); ctx.translate(cx, cy - s * .03); ctx.scale(bloom, bloom)
+    ctx.shadowColor = '#d7a8ff'; ctx.shadowBlur = s * .2
+    for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3, px = Math.cos(angle) * s * .2, py = Math.sin(angle) * s * .2
+      ctx.fillStyle = i % 2 ? '#a961dc' : '#c882f2'
+      ctx.beginPath(); ctx.ellipse(px, py, s * .14, s * .22, angle + Math.PI / 2, 0, 7); ctx.fill()
+      ctx.fillStyle = 'rgba(255,221,255,.32)'
+      ctx.beginPath(); ctx.ellipse(px * .92, py * .92, s * .055, s * .13, angle + Math.PI / 2, 0, 7); ctx.fill()
+    }
+    ctx.shadowColor = '#ffe58c'; ctx.shadowBlur = s * .16; ctx.fillStyle = '#f7cf58'
+    ctx.beginPath(); ctx.arc(0, 0, s * .16, 0, 7); ctx.fill()
+    ctx.shadowColor = 'transparent'; ctx.fillStyle = '#5a3b36'; ctx.font = `900 ${Math.max(9, s * .19)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('合', 0, s * .01)
+    ctx.restore()
   }
   if (type === 'shortGate' || type === 'longGate') {
     ctx.fillStyle = type === 'shortGate' ? '#86d8a0' : '#d6a36b'; rr(x + s * .18, y + s * .08, s * .64, s * .84, s * .14); ctx.shadowColor = 'transparent'; ctx.fillStyle = C.ink; ctx.font = `900 ${s * .24}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(type === 'shortGate' ? '≤2' : '≥4', cx, cy)
