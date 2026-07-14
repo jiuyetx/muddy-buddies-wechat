@@ -25,7 +25,9 @@ let muted = Boolean(wx.getStorageSync('muted'))
 let directionButtons = Boolean(wx.getStorageSync('directionButtons'))
 let mapScrollY = 0, mapVelocityY = 0, mapDragging = false, mapNeedsFocus = true
 let appVisible = true, frameTimer = null, renderToken = 0
-const MAP_GAP = Math.max(92, Math.min(124, H * .27)), MAP_TOP = 90, MAP_VIEW_TOP = SAFE_TOP + 42, MAP_VIEW_BOTTOM = FOOTER_Y - 12
+const MAP_TOP = 90, MAP_VIEW_TOP = SAFE_TOP + 42, MAP_VIEW_BOTTOM = FOOTER_Y - 12
+const MAP_GAP = Math.max(50, Math.min(68, (MAP_VIEW_BOTTOM - MAP_VIEW_TOP) / 6.5))
+const MAP_CHAPTER_GAP = Math.max(24, MAP_GAP * .45)
 
 function rr(x, y, w, h, r) {
   r = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2)); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
@@ -78,7 +80,8 @@ function title() {
 
 function mapNodes() {
   let y = MAP_TOP, chapter = 0
-  return LEVELS.map((level, index) => { if (level.chapter !== chapter) { y += chapter ? MAP_GAP * .55 : 0; chapter = level.chapter } const node = { level, index, x: W * (.5 + Math.sin(index * 1.7) * .18), y }; y += MAP_GAP; return node })
+  const spread = Math.min(118, W * .15)
+  return LEVELS.map((level, index) => { if (level.chapter !== chapter) { y += chapter ? MAP_CHAPTER_GAP : 0; chapter = level.chapter } const node = { level, index, x: W / 2 + Math.sin(index * 1.18) * spread, y }; y += MAP_GAP; return node })
 }
 
 function focusMapCurrent() {
