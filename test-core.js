@@ -15,7 +15,7 @@ assert.equal(resolveSwipe(10, 2, 800), null)
 assert.equal(resolveSwipe(70, 45, 800), 'right')
 assert.equal(resolveSwipe(43, 75, 800), 'down')
 assert.equal(resolveSwipe(70, 68, 800), null)
-assert.equal(LEVELS.length, 40)
+assert.equal(LEVELS.length, 45)
 const tokenType = { B: 'pressure', P: 'buddy_pressure', H: 'head_pressure', '+': 'conductor', T: 'toggle', D: 'door' }
 LEVELS.forEach(level => {
   assert(level.tiles.every(row => row.length === level.width), `${level.id} row width mismatch`)
