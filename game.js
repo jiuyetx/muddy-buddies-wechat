@@ -328,7 +328,38 @@ function play(time) {
   const utilityX = directionButtons ? 24 : W / 2 - 108, mapX = directionButtons ? W - 69 : utilityX + 160
   button('↶ 撤回一步', utilityX, FOOTER_Y, 86, () => { game.undo(); clearAnimation(); sound('move') }, false, game.history.length === 0)
   button('重开', utilityX + 94, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 56, () => { scene = 'map'; mapNeedsFocus = true })
-  if (game.canFuse()) button('融合', W - 132, FOOTER_Y - 44, 64, () => { game.fuse(); clearAnimation(); sound('cut') }, true)
+  const fuseReady = game.canFuse(), showFuseHint = fuseReady && !wx.getStorageSync('learnedFuse')
+  if (fuseReady) {
+    const fuseX = W - 132, fuseY = FOOTER_Y - 44
+    if (showFuseHint) {
+      const pulse = .55 + (Math.sin(time / 220) + 1) * .16
+      ctx.save()
+      ctx.strokeStyle = `rgba(247,240,206,${pulse})`
+      ctx.lineWidth = 3
+      rr(fuseX - 5, fuseY - 5, 74, 48, 24)
+      ctx.stroke()
+      ctx.fillStyle = 'rgba(20,15,19,.9)'
+      rr(fuseX - 78, fuseY - 36, 152, 28, 14)
+      ctx.fillStyle = C.cream
+      ctx.font = '700 12px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('伙伴挨在一起后，点这里融合', fuseX - 2, fuseY - 22)
+      ctx.beginPath()
+      ctx.moveTo(fuseX + 32, fuseY - 8)
+      ctx.lineTo(fuseX + 26, fuseY - 16)
+      ctx.lineTo(fuseX + 38, fuseY - 16)
+      ctx.closePath()
+      ctx.fill()
+      ctx.restore()
+    }
+    button('融合', fuseX, fuseY, 64, () => {
+      if (!game.fuse()) return
+      wx.setStorageSync('learnedFuse', 1)
+      clearAnimation()
+      sound('cut')
+    }, true)
+  }
   if (directionButtons) { const directions = [['←','left'], ['↑','up'], ['↓','down'], ['→','right']], start = W / 2 - 81; directions.forEach(([label, direction], i) => button(label, start + i * 42, FOOTER_Y, 36, () => enqueue(direction))) }
 
   if (game.level === 0 && game.moves === 0 && !wx.getStorageSync('learnedSwipe')) {
