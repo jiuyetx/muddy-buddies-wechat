@@ -6,10 +6,11 @@ const W = sys.windowWidth, H = sys.windowHeight, DPR = Math.min(sys.pixelRatio |
 const safe = sys.safeArea || { top: 0, bottom: H }
 let capsule = null
 try { capsule = wx.getMenuButtonBoundingClientRect() } catch (_) {}
-const SAFE_TOP = Math.max(safe.top || 0, capsule ? capsule.bottom : 0)
+const SAFE_TOP = Math.max(0, safe.top || 0)
 const SAFE_BOTTOM = Math.max(0, H - (safe.bottom || H))
 const HEADER_Y = SAFE_TOP + 18, FOOTER_Y = H - SAFE_BOTTOM - 42
 const PLAY_HEADER_TOP = SAFE_TOP + 5, PLAY_HEADER_HEIGHT = 46, PLAY_VIEW_TOP = PLAY_HEADER_TOP + PLAY_HEADER_HEIGHT + 6, PLAY_VIEW_BOTTOM = FOOTER_Y - 10
+const PLAY_HEADER_RIGHT = capsule?.left ? capsule.left - 8 : W - 10
 const canvas = wx.createCanvas(), ctx = canvas.getContext('2d')
 canvas.width = W * DPR; canvas.height = H * DPR; ctx.scale(DPR, DPR)
 
@@ -175,6 +176,11 @@ function object(type, x, y, s, t, active = false) {
     ctx.shadowColor = 'transparent'; ctx.fillStyle = '#5a3b36'; ctx.font = `900 ${Math.max(9, s * .19)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('合', 0, s * .01)
     ctx.restore()
   }
+  if (type === 'toggle') {
+    ctx.fillStyle = active ? '#f5cf56' : '#7d6aaa'; ctx.beginPath(); ctx.arc(cx, cy, s * .29, 0, 7); ctx.fill()
+    ctx.shadowColor = 'transparent'; ctx.strokeStyle = active ? '#fff2a6' : '#c9b9ef'; ctx.lineWidth = Math.max(2, s * .055); ctx.beginPath(); ctx.arc(cx, cy, s * .2, 0, 7); ctx.stroke()
+    ctx.fillStyle = C.ink; ctx.font = `900 ${s * .23}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('T', cx, cy)
+  }
   if (type === 'shortGate' || type === 'longGate') {
     ctx.fillStyle = type === 'shortGate' ? '#86d8a0' : '#d6a36b'; rr(x + s * .18, y + s * .08, s * .64, s * .84, s * .14); ctx.shadowColor = 'transparent'; ctx.fillStyle = C.ink; ctx.font = `900 ${s * .24}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(type === 'shortGate' ? '≤2' : '≥4', cx, cy)
   }
@@ -281,7 +287,7 @@ function characterFeel(worm, index, now) {
 function play(time) {
   controls = []; ctx.save(); if (shake > 0) { ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake *= .82 }
   background(game.chapter === '苔藓庭院' ? '#65735b' : game.chapter === '曲根回廊' ? '#735644' : game.chapter === '深处的家' ? '#584158' : C.dirt)
-  const availableH = PLAY_VIEW_BOTTOM - PLAY_VIEW_TOP, tile = Math.min(42, Math.floor(Math.min((W - 32) / game.w, availableH / game.h))), ox = Math.floor((W - game.w * tile) / 2)
+  const availableH = PLAY_VIEW_BOTTOM - PLAY_VIEW_TOP, tile = Math.floor(Math.min((W - 32) / game.w, availableH / game.h)), ox = Math.floor((W - game.w * tile) / 2)
   const oy = PLAY_VIEW_TOP + Math.min(Math.floor(Math.max(0, availableH - game.h * tile) * .15), 16)
   boardLayout = { tile, ox, oy }
   ctx.fillStyle = C.tunnel; for (let y = 0; y < game.h; y++) for (let x = 0; x < game.w; x++) if (!game.walls.has(key([x, y]))) {
@@ -299,7 +305,7 @@ function play(time) {
     object(type, ox + x * tile + jitter, oy + y * tile, tile, time, active)
   })
   each(game.buttons, 'button'); each(game.buddyButtons, 'buddyButton'); each(game.headButtons, 'headButton'); each(game.nests, 'nest'); each(game.scissors, 'scissors')
-  each(game.conductors, 'conductor'); each(game.fusions, 'fusion'); each(game.shortGates, 'shortGate'); each(game.longGates, 'longGate')
+  each(game.conductors, 'conductor'); each(game.fusions, 'fusion'); game.toggles.forEach(p => { const [x, y] = p.split(',').map(Number); object('toggle', ox + x * tile, oy + y * tile, tile, time, game.toggleStates.get(p)) }); each(game.shortGates, 'shortGate'); each(game.longGates, 'longGate')
   game.doors.forEach(p => { const [x, y] = p.split(',').map(Number), px = ox + x * tile, py = oy + y * tile, open = game.doorOpen([x, y]); ctx.shadowColor = open ? C.yellow : 'transparent'; ctx.shadowBlur = tile * .35; ctx.fillStyle = open ? 'rgba(244,206,76,.42)' : C.cream; rr(px + tile * .35, py, tile * .3, tile, tile * .09); ctx.shadowColor = 'transparent' })
   game.exits.forEach(p => { const [x, y] = p.split(',').map(Number); object('exit', ox + x * tile, oy + y * tile, tile, time, game.won) })
   each(game.apples, 'apple'); each(game.rocks, 'rock'); each(game.eggs, 'egg')
@@ -340,11 +346,11 @@ function play(time) {
   game.worms.forEach((worm, i) => { if (game.isExited(worm)) return; const [x, y] = worm[0], size = tile * 1.35, offset = (size - tile) / 2; addControl(ox + x * tile - offset, oy + y * tile - offset, size, size, () => { inputQueue = []; game.select(i); wx.setStorageSync('learnedSwitch', 1); sound('select') }) })
   particlesDraw(); ctx.restore()
 
-  ctx.save(); ctx.fillStyle = 'rgba(25,20,24,.78)'; rr(10, PLAY_HEADER_TOP, W - 20, PLAY_HEADER_HEIGHT, 14)
+  ctx.save(); ctx.fillStyle = 'rgba(25,20,24,.78)'; rr(10, PLAY_HEADER_TOP, PLAY_HEADER_RIGHT - 10, PLAY_HEADER_HEIGHT, 14)
   const stats = `${game.moves} 步 · ${game.liveWorms().length}/${game.worms.length} 位未回家`
-  ctx.textBaseline = 'middle'; ctx.fillStyle = C.cream; ctx.font = '800 16px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(fitText(`${game.level + 1}. ${game.name}`, W - 56 - ctx.measureText(stats).width), 22, PLAY_HEADER_TOP + 14)
-  ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(fitText(game.message || game.hint, W - 44), 22, PLAY_HEADER_TOP + 33)
-  ctx.textAlign = 'right'; ctx.fillText(stats, W - 22, PLAY_HEADER_TOP + 14); ctx.restore()
+  ctx.textBaseline = 'middle'; ctx.fillStyle = C.cream; ctx.font = '800 16px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(fitText(`${game.level + 1}. ${game.name}`, PLAY_HEADER_RIGHT - 46 - ctx.measureText(stats).width), 22, PLAY_HEADER_TOP + 14)
+  ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(fitText(game.message || game.hint, PLAY_HEADER_RIGHT - 34), 22, PLAY_HEADER_TOP + 33)
+  ctx.textAlign = 'right'; ctx.fillText(stats, PLAY_HEADER_RIGHT - 12, PLAY_HEADER_TOP + 14); ctx.restore()
   const utilityX = directionButtons ? 24 : W / 2 - 108, mapX = directionButtons ? W - 69 : utilityX + 160
   button('↶ 撤回一步', utilityX, FOOTER_Y, 86, () => { game.undo(); clearAnimation(); sound('move') }, false, game.history.length === 0)
   button('重开', utilityX + 94, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 56, () => { scene = 'map'; mapNeedsFocus = true })

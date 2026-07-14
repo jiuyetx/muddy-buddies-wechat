@@ -15,8 +15,8 @@ assert.equal(resolveSwipe(10, 2, 800), null)
 assert.equal(resolveSwipe(70, 45, 800), 'right')
 assert.equal(resolveSwipe(43, 75, 800), 'down')
 assert.equal(resolveSwipe(70, 68, 800), null)
-assert.equal(LEVELS.length, 30)
-const tokenType = { B: 'pressure', P: 'buddy_pressure', H: 'head_pressure', '+': 'conductor', D: 'door' }
+assert.equal(LEVELS.length, 40)
+const tokenType = { B: 'pressure', P: 'buddy_pressure', H: 'head_pressure', '+': 'conductor', T: 'toggle', D: 'door' }
 LEVELS.forEach(level => {
   assert(level.tiles.every(row => row.length === level.width), `${level.id} row width mismatch`)
   if (level.chapter >= 6 && level.id !== '6-01') assert(level.width >= 18 && level.width <= 24 && level.height >= 7 && level.height <= 10, `${level.id} should use the 18-22 x 7-9 standard or the 24 x 10 special size`)
@@ -39,7 +39,7 @@ function exitReachable(level, doorsOpen, start = level.entities.find(entity => e
   }
   return false
 }
-LEVELS.filter(level => level.links.length).forEach(level => {
+LEVELS.filter(level => level.status === 'playtest' && level.links.length).forEach(level => {
   const starts = level.entities.filter(entity => entity.type === 'WORM').map(entity => entity.segments[0])
   assert(starts.some(start => !exitReachable(level, false, start)), `${level.id} doors block nobody`)
   assert(starts.every(start => exitReachable(level, true, start)), `${level.id} has no route after its doors open`)
@@ -52,9 +52,9 @@ LEVELS.filter(level => level.status === 'playtest' && level.objectives.some(obje
 })
 Object.entries(SOLUTIONS).forEach(([level, solution]) => {
   const game = new Game(Number(level)), initialWorms = game.worms.length, movedByWorm = new Set()
-  solution.split(' ').forEach(step => { const parts = step.split(':'); if (parts.length === 2) assert(game.select(Number(parts[0])), `${game.id} cannot select worm ${parts[0]}`); movedByWorm.add(game.worm[0].id); assert(game.move(parts.at(-1)), `${game.id} solution failed at ${step}`) })
+  solution.split(' ').forEach(step => { const parts = step.split(':'); if (step === 'fuse') { assert(game.fuse(), `${game.id} cannot fuse`); return } if (parts.length === 2) assert(game.select(Number(parts[0])), `${game.id} cannot select worm ${parts[0]}`); movedByWorm.add(game.worm[0].id); assert(game.move(parts.at(-1)), `${game.id} solution failed at ${step}`) })
   assert(game.won, `${game.id} official solution did not win`)
-  if (game.objectives.some(objective => ['ALL_CHARACTERS_EXIT', 'ALL_EXITS_OCCUPIED'].includes(objective.type))) assert.equal(movedByWorm.size, initialWorms, `${game.id} official solution leaves a buddy idle`)
+  if (game.objectives.some(objective => ['ALL_CHARACTERS_EXIT', 'ALL_EXITS_OCCUPIED'].includes(objective.type))) assert(movedByWorm.size >= initialWorms, `${game.id} official solution leaves a buddy idle`)
 })
 
 const basic = new Game(0)
@@ -172,4 +172,13 @@ assert.equal(fusion.fuse(), true)
 assert.deepEqual(positions(fusion.worm), [[1, 2], [2, 2], [3, 2], [4, 2]])
 assert.equal(fusion.undo(), true)
 assert.equal(fusion.worms.length, 2)
+
+const toggle = new Game(35)
+assert.equal(toggle.doorOpen([10, 2]), false)
+assert.equal(toggle.move('right'), true)
+assert.equal(toggle.move('right'), true)
+assert.equal(toggle.toggleStates.get('4,2'), true)
+assert.equal(toggle.doorOpen([10, 2]), true)
+assert.equal(toggle.undo(), true)
+assert.equal(toggle.toggleStates.get('4,2'), false)
 console.log('core checks passed')

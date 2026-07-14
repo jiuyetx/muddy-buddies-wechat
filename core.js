@@ -8,6 +8,7 @@ const TILE_TYPES = {
   B: ['buttons', 'PRESSURE', ['TriggerComponent', 'PressurePlateComponent']], D: ['doors', 'DOOR', ['DoorComponent', 'BlockingComponent']],
   P: ['buddyButtons', 'BUDDY_PRESSURE', ['TriggerComponent', 'BuddyPressurePlateComponent']], H: ['headButtons', 'HEAD_PRESSURE', ['TriggerComponent', 'HeadPressurePlateComponent']],
   '+': ['conductors', 'CONDUCTOR', ['TriggerComponent', 'ConductorComponent']], M: ['fusions', 'FUSION', ['FusionComponent']],
+  T: ['toggles', 'TOGGLE', ['TriggerComponent', 'ToggleSwitchComponent']],
   '2': ['shortGates', 'SHORT_GATE', ['LengthGateComponent']], '4': ['longGates', 'LONG_GATE', ['LengthGateComponent']],
   S: ['scissors', 'SCISSORS', ['SplitPointComponent']], N: ['nests', 'NEST', ['TriggerComponent']], E: ['eggs', 'EGG', ['CarryableComponent', 'FragileComponent']],
   X: ['exits', 'EXIT', ['ExitComponent']]
@@ -23,7 +24,7 @@ class Segment {
 }
 
 function parseLevel(source) {
-  const state = { walls: [], apples: [], rocks: [], buttons: [], buddyButtons: [], headButtons: [], conductors: [], fusions: [], shortGates: [], longGates: [], doors: [], scissors: [], nests: [], eggs: [], exits: [], entityById: new Map(), entityAt: new Map() }
+  const state = { walls: [], apples: [], rocks: [], buttons: [], buddyButtons: [], headButtons: [], conductors: [], fusions: [], toggles: [], shortGates: [], longGates: [], doors: [], scissors: [], nests: [], eggs: [], exits: [], entityById: new Map(), entityAt: new Map() }
   source.tiles.forEach((row, y) => [...row].forEach((cell, x) => {
     const definition = TILE_TYPES[cell]; if (!definition) return
     const [collection, type, components] = definition, position = [x, y], id = `${type.toLowerCase()}_${x}_${y}`, entity = { id, type, position, components }
@@ -55,6 +56,7 @@ class Game {
     this.active = 0
     Object.keys(parsed).forEach(name => { this[name] = Array.isArray(parsed[name]) ? new Set(parsed[name]) : parsed[name] })
     this.exit = [...this.exits][0]?.split(',').map(Number) || null
+    this.toggleStates = new Map([...this.toggles].map(position => [position, false]))
     this.exited = new Set()
     this.history = []
     this.moves = 0
@@ -76,11 +78,19 @@ class Game {
     if (entity.type === 'HEAD_PRESSURE') return heads.has(position)
     return occupied.has(position) || this.rocks.has(position)
   }
+  triggerActive(link) {
+    const entity = this.entityById.get(link.source)
+    if (entity?.type === 'TOGGLE') {
+      const on = Boolean(this.toggleStates.get(key(entity.position)))
+      return link.mode === 'WHEN_OFF' ? !on : on
+    }
+    return link.mode === 'WHILE_ACTIVE' && this.pressureActive(link.source)
+  }
   doorOpen(position) {
     const door = this.entityAt.get(key(position)), incoming = this.links.filter(link => link.target === door?.id)
     const conductors = incoming.filter(link => this.entityById.get(link.source)?.type === 'CONDUCTOR').map(link => this.entityById.get(link.source).position)
     const circuit = !conductors.length || this.liveWorms().some(worm => { const body = new Set(worm.map(key)); return conductors.every(position => body.has(key(position))) })
-    return incoming.length > 0 && circuit && incoming.every(link => this.entityById.get(link.source)?.type === 'CONDUCTOR' || (link.mode === 'WHILE_ACTIVE' && this.pressureActive(link.source)))
+    return incoming.length > 0 && circuit && incoming.every(link => this.entityById.get(link.source)?.type === 'CONDUCTOR' || this.triggerActive(link))
   }
   get doorsOpen() {
     return this.doors.size > 0 && [...this.doors].every(position => this.doorOpen(position.split(',').map(Number)))
@@ -88,12 +98,13 @@ class Game {
 
   snapshot() {
     const worms = this.worms.map(worm => worm.map(({ x, y, id, state }) => ({ x, y, id, state: copy(state) })))
-    return { worms, nextSegmentId: this.nextSegmentId, active: this.active, exited: [...this.exited], apples: [...this.apples], rocks: [...this.rocks], eggs: [...this.eggs], moves: this.moves, won: this.won, eggDelivered: this.eggDelivered }
+    return { worms, nextSegmentId: this.nextSegmentId, active: this.active, exited: [...this.exited], apples: [...this.apples], rocks: [...this.rocks], eggs: [...this.eggs], toggleStates: [...this.toggleStates], moves: this.moves, won: this.won, eggDelivered: this.eggDelivered }
   }
 
   restore(state) {
     this.nextSegmentId = state.nextSegmentId; this.worms = state.worms.map(worm => this.makeWorm(worm)); this.active = state.active; this.exited = new Set(state.exited || []); this.relink()
     this.apples = new Set(state.apples); this.rocks = new Set(state.rocks); this.eggs = new Set(state.eggs)
+    this.toggleStates = new Map(state.toggleStates || [])
     this.moves = state.moves; this.won = state.won; this.eggDelivered = state.eggDelivered
     this.message = ''; this.event = 'undo'; this.buttonChanged = false
   }
@@ -205,6 +216,12 @@ class Game {
     this.worm[0].moveTo(next)
     this.relink()
     if (grows) { this.apples.delete(target); this.message = '嚼嚼！长了一截' }
+    if (this.toggles.has(target)) {
+      const on = !this.toggleStates.get(target)
+      this.toggleStates.set(target, on)
+      this.message = on ? '咔哒！菌核通路亮起来了' : '咔哒！菌核通路换向了'
+      this.event = 'toggle'
+    }
     this.moves++
     this.splitAtScissors()
     this.buttonChanged = doorsWereOpen !== this.doorsOpen

@@ -3,7 +3,7 @@ const { Game, DIRS } = require('./core')
 const level = Number(process.argv[2]), game = new Game(level), source = require('./levels')[level]
 const hash = state => JSON.stringify({
   worms: state.worms.map(worm => worm.map(({ x, y, id }) => [x, y, id])), exited: state.exited.slice().sort(),
-  apples: state.apples.slice().sort(), rocks: state.rocks.slice().sort(), eggs: state.eggs.slice().sort(), won: state.won
+  apples: state.apples.slice().sort(), rocks: state.rocks.slice().sort(), eggs: state.eggs.slice().sort(), toggles: state.toggleStates, won: state.won
 })
 const distance = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1])
 const points = char => source.tiles.flatMap((row, y) => [...row].flatMap((cell, x) => cell === char ? [[x, y]] : []))
@@ -31,6 +31,13 @@ for (let searched = 0; heap.length && searched < 750000; searched++) {
     if (game.won) { console.log(path); process.exit(0) }
     const id = hash(next); if ((seen.get(id) ?? Infinity) <= moves) continue
     seen.set(id, moves); push({ state: next, path, moves, score: moves + heuristic(next) * 2 })
+  }
+  game.restore(current.state); game.history = []
+  if (game.canFuse() && game.fuse()) {
+    const next = game.snapshot(), moves = current.moves + 1, path = `${current.path} fuse`.trim()
+    if (game.won) { console.log(path); process.exit(0) }
+    const id = hash(next)
+    if ((seen.get(id) ?? Infinity) > moves) { seen.set(id, moves); push({ state: next, path, moves, score: moves + heuristic(next) * 2 }) }
   }
 }
 throw new Error(`No solution for level ${level + 1} after ${seen.size} states`)
