@@ -8,13 +8,41 @@ let capsule = null
 try { capsule = wx.getMenuButtonBoundingClientRect() } catch (_) {}
 const SAFE_TOP = Math.max(0, safe.top || 0)
 const SAFE_BOTTOM = Math.max(0, H - (safe.bottom || H))
-const HEADER_Y = SAFE_TOP + 18, FOOTER_Y = H - SAFE_BOTTOM - 42
-const PLAY_HEADER_TOP = SAFE_TOP + 5, PLAY_HEADER_HEIGHT = 46, PLAY_VIEW_TOP = PLAY_HEADER_TOP + PLAY_HEADER_HEIGHT + 6, PLAY_VIEW_BOTTOM = FOOTER_Y - 10
+const BUTTON_H = 42
+const HEADER_Y = SAFE_TOP + 20, FOOTER_Y = H - SAFE_BOTTOM - BUTTON_H - 6
+const PLAY_HEADER_TOP = SAFE_TOP + 6, PLAY_HEADER_HEIGHT = 54, PLAY_VIEW_TOP = PLAY_HEADER_TOP + PLAY_HEADER_HEIGHT + 7, PLAY_VIEW_BOTTOM = FOOTER_Y - 12
 const PLAY_HEADER_RIGHT = capsule?.left ? capsule.left - 8 : W - 10
 const canvas = wx.createCanvas(), ctx = canvas.getContext('2d')
 canvas.width = W * DPR; canvas.height = H * DPR; ctx.scale(DPR, DPR)
+function loadCanvasImage(src) {
+  const image = wx.createImage()
+  image.onload = () => scheduleFrame()
+  image.src = src
+  return image
+}
+const MAP_ART = {
+  title: loadCanvasImage('assets/title-root-path-bg.jpg'),
+  background: loadCanvasImage('assets/life-tree-map-continuous.jpg'),
+  complete: loadCanvasImage('assets/life-node-complete.png'),
+  current: loadCanvasImage('assets/life-node-current.png'),
+  locked: loadCanvasImage('assets/life-node-locked.png')
+}
 
 const C = { dirt: '#934b3f', deep: '#21191e', tunnel: '#30272b', ridge: '#64342f', pink: '#f29aae', rose: '#d7617c', cream: '#f7f0ce', green: '#93be72', yellow: '#f4ce4c', ink: '#191419', white: '#fffdf5' }
+const CHAPTER_THEMES = {
+  1: { accent: '#d8ae68', tint: 'rgba(116,71,42,.18)', floor: 'rgba(52,37,33,.94)', wall: '#654333', rim: 'rgba(216,174,104,.14)', motif: '初醒土层' },
+  2: { accent: '#c49a72', tint: 'rgba(82,59,48,.22)', floor: 'rgba(43,34,32,.94)', wall: '#58433a', rim: 'rgba(196,154,114,.14)', motif: '沉石旧根' },
+  3: { accent: '#d7a05b', tint: 'rgba(117,72,39,.18)', floor: 'rgba(49,34,31,.94)', wall: '#684231', rim: 'rgba(215,160,91,.15)', motif: '曲根迷廊' },
+  4: { accent: '#9fc27b', tint: 'rgba(53,91,62,.2)', floor: 'rgba(35,48,39,.94)', wall: '#4a5d42', rim: 'rgba(159,194,123,.16)', motif: '苔光育巢' },
+  5: { accent: '#d49aaa', tint: 'rgba(92,55,78,.2)', floor: 'rgba(48,34,43,.94)', wall: '#62404f', rim: 'rgba(212,154,170,.15)', motif: '归家根室' },
+  6: { accent: '#dba55d', tint: 'rgba(105,66,38,.2)', floor: 'rgba(47,36,31,.94)', wall: '#674733', rim: 'rgba(219,165,93,.16)', motif: '菌丝工坊' },
+  7: { accent: '#79d8cd', tint: 'rgba(42,75,83,.22)', floor: 'rgba(31,42,47,.94)', wall: '#38565a', rim: 'rgba(121,216,205,.18)', motif: '荧光菌潮' },
+  8: { accent: '#a9bfff', tint: 'rgba(56,64,111,.23)', floor: 'rgba(34,36,52,.94)', wall: '#4b4d72', rim: 'rgba(169,191,255,.2)', motif: '水晶脉冲' },
+  9: { accent: '#d993ee', tint: 'rgba(91,49,108,.23)', floor: 'rgba(46,31,50,.94)', wall: '#65416d', rim: 'rgba(217,147,238,.19)', motif: '形变标本' },
+  10: { accent: '#ff9872', tint: 'rgba(124,48,42,.24)', floor: 'rgba(51,31,32,.94)', wall: '#713e38', rim: 'rgba(255,152,114,.2)', motif: '菌核警报' },
+  11: { accent: '#95d1a0', tint: 'rgba(53,88,70,.22)', floor: 'rgba(34,46,41,.94)', wall: '#466052', rim: 'rgba(149,209,160,.18)', motif: '共生回声' },
+  12: { accent: '#8fd2e8', tint: 'rgba(48,79,99,.23)', floor: 'rgba(31,42,49,.94)', wall: '#3e5863', rim: 'rgba(143,210,232,.2)', motif: '风痕峡道' }
+}
 let game = new Game(Math.min(Number(wx.getStorageSync('caveLevel')) || 0, LEVELS.length - 1))
 let scene = wx.getStorageSync('seenIntro') ? 'map' : 'title'
 let touch = null, controls = [], transition = 1, shake = 0, particles = [], visualWorms = null, inputQueue = []
@@ -24,11 +52,10 @@ let lastQueuedDirection = null, lastQueuedAt = 0, boardLayout = { tile: 0, ox: 0
 let audio
 let muted = Boolean(wx.getStorageSync('muted'))
 let directionButtons = Boolean(wx.getStorageSync('directionButtons'))
-let mapScrollY = 0, mapVelocityY = 0, mapDragging = false, mapNeedsFocus = true
+let mapScrollY = 0, mapVelocityY = 0, mapDragging = false, mapNeedsFocus = true, mapSettingsOpen = false
 let appVisible = true, frameTimer = null, renderToken = 0
-const MAP_TOP = 90, MAP_VIEW_TOP = SAFE_TOP + 42, MAP_VIEW_BOTTOM = FOOTER_Y - 12
-const MAP_GAP = Math.max(50, Math.min(68, (MAP_VIEW_BOTTOM - MAP_VIEW_TOP) / 6.5))
-const MAP_CHAPTER_GAP = Math.max(24, MAP_GAP * .45)
+const MAP_VIEW_TOP = SAFE_TOP, MAP_VIEW_BOTTOM = H - SAFE_BOTTOM
+const MAP_PAGE_HEIGHT = Math.max(300, H - SAFE_TOP - SAFE_BOTTOM - 20)
 
 function rr(x, y, w, h, r) {
   r = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2)); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
@@ -58,39 +85,97 @@ function sound(kind) {
 
 function addControl(x, y, w, h, action, blockSwipe = false) { controls.push({ x, y, w, h, action, blockSwipe }) }
 function button(label, x, y, w, action, accent = false, disabled = false) {
-  ctx.save(); if (disabled) ctx.globalAlpha = .38
-  ctx.fillStyle = accent ? C.cream : 'rgba(25,20,24,.72)'; rr(x, y, w, 38, 19)
-  ctx.fillStyle = accent ? C.ink : C.cream; ctx.font = '700 14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x + w / 2, y + 19)
-  ctx.restore(); if (!disabled) addControl(x, y, w, 38, action, true)
+  ctx.save(); if (disabled) ctx.globalAlpha = .34
+  ctx.shadowColor = accent ? 'rgba(247,240,206,.28)' : 'rgba(10,7,9,.2)'; ctx.shadowBlur = accent ? 14 : 7; ctx.shadowOffsetY = 3
+  ctx.fillStyle = accent ? C.cream : 'rgba(25,20,24,.82)'; rr(x, y, w, BUTTON_H, 21)
+  ctx.shadowColor = 'transparent'; ctx.strokeStyle = accent ? 'rgba(255,255,255,.55)' : 'rgba(180,137,72,.32)'; ctx.lineWidth = 1; ctx.stroke()
+  ctx.fillStyle = accent ? C.ink : C.cream; ctx.font = '800 14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x + w / 2, y + BUTTON_H / 2)
+  ctx.restore(); if (!disabled) addControl(x, y, w, BUTTON_H, action, true)
 }
 
-function background(color = C.dirt) {
-  ctx.fillStyle = color; ctx.fillRect(-10, -10, W + 20, H + 20); ctx.strokeStyle = 'rgba(53,25,26,.24)'; ctx.lineWidth = 2
-  for (let y = 8; y < H; y += 17) { ctx.beginPath(); for (let x = -10; x <= W + 10; x += 16) ctx.lineTo(x, y + Math.sin(x * .04 + y * .13) * 3); ctx.stroke() }
+function mapRoundButton(x, y, action, icon) {
+  ctx.save(); ctx.shadowColor = 'rgba(8,5,7,.5)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4
+  ctx.fillStyle = 'rgba(25,20,24,.9)'; ctx.beginPath(); ctx.arc(x, y, 24, 0, Math.PI * 2); ctx.fill()
+  ctx.shadowColor = 'transparent'; ctx.strokeStyle = 'rgba(244,206,76,.55)'; ctx.lineWidth = 1.4; ctx.stroke()
+  ctx.strokeStyle = C.cream; ctx.fillStyle = C.cream; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+  if (icon === 'back') {
+    ctx.beginPath(); ctx.moveTo(x + 8, y); ctx.lineTo(x - 7, y); ctx.moveTo(x - 7, y); ctx.lineTo(x, y - 8); ctx.moveTo(x - 7, y); ctx.lineTo(x, y + 8); ctx.stroke()
+  } else {
+    ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill()
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 10, y + Math.sin(a) * 10); ctx.lineTo(x + Math.cos(a) * 14, y + Math.sin(a) * 14); ctx.stroke() }
+  }
+  ctx.restore(); addControl(x - 28, y - 28, 56, 56, action, true)
+}
+
+function mapSegmentedToggle(x, y, value, action) {
+  const w = 116, h = 34
+  ctx.fillStyle = 'rgba(15,12,14,.72)'; rr(x, y, w, h, 17)
+  ctx.strokeStyle = 'rgba(247,240,206,.18)'; ctx.lineWidth = 1; ctx.stroke()
+  ctx.fillStyle = value ? 'rgba(105,142,65,.92)' : 'rgba(71,58,62,.92)'; rr(x + (value ? w / 2 : 2), y + 2, w / 2 - 2, h - 4, 15)
+  ctx.fillStyle = value ? 'rgba(247,240,206,.55)' : C.cream; ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('关', x + w * .25, y + h / 2)
+  ctx.fillStyle = value ? C.cream : 'rgba(247,240,206,.55)'; ctx.fillText('开', x + w * .75, y + h / 2)
+  addControl(x, y, w, h, action, true)
+}
+
+function currentChapterTheme() { return CHAPTER_THEMES[LEVELS[game.level]?.chapter] || CHAPTER_THEMES[1] }
+
+function playBackdrop(theme) {
+  ctx.fillStyle = '#171116'; ctx.fillRect(-10, -10, W + 20, H + 20)
+  const image = MAP_ART.background
+  if (image.width) {
+    const sourceH = Math.min(image.height, image.width * H / W)
+    const progress = LEVELS.length > 1 ? game.level / (LEVELS.length - 1) : 0
+    const sourceY = Math.max(0, Math.min(image.height - sourceH, progress * (image.height - sourceH)))
+    ctx.drawImage(image, 0, sourceY, image.width, sourceH, 0, 0, W, H)
+  }
+  ctx.fillStyle = theme.tint; ctx.fillRect(0, 0, W, H)
+  const shade = ctx.createLinearGradient(0, 0, 0, H)
+  shade.addColorStop(0, 'rgba(18,13,17,.24)'); shade.addColorStop(.55, 'rgba(18,13,17,.42)'); shade.addColorStop(1, 'rgba(18,13,17,.68)')
+  ctx.fillStyle = shade; ctx.fillRect(0, 0, W, H)
 }
 
 function title() {
-  background('#793d36'); controls = []
-  ctx.save(); ctx.translate(W / 2, H / 2 - 35); ctx.rotate(-.025)
-  ctx.fillStyle = C.deep; rr(-190, -67, 380, 134, 34)
-  ctx.fillStyle = C.cream; ctx.font = `900 ${Math.min(58, W / 9)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('泥 土 小 伙 伴', 0, -6)
-  ctx.fillStyle = C.pink; rr(-145, 46, 72, 28, 14); ctx.fillStyle = C.white; ctx.beginPath(); ctx.arc(-84, 60, 9, 0, 7); ctx.fill(); ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(-81, 60, 4, 0, 7); ctx.fill()
-  ctx.restore(); button('开始探索', W / 2 - 65, H - SAFE_BOTTOM - 68, 130, () => { scene = 'map'; mapNeedsFocus = true; wx.setStorageSync('seenIntro', 1); sound('win') }, true)
-  ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('原创身体解谜游戏', W / 2, H - SAFE_BOTTOM - 16)
+  ctx.fillStyle = '#181114'; ctx.fillRect(0, 0, W, H); controls = []
+  if (MAP_ART.title.width) ctx.drawImage(MAP_ART.title, 0, 0, W, H)
+  const x = W * .3
+  ctx.save(); ctx.shadowColor = 'rgba(8,5,7,.92)'; ctx.shadowBlur = 12
+  ctx.fillStyle = C.cream; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+  ctx.font = `700 ${Math.max(13, Math.min(17, W / 60))}px sans-serif`; ctx.fillText('一条身体 · 一群伙伴 · 一起回家', x, H * .29)
+  ctx.font = `900 ${Math.min(52, W / 17.8)}px sans-serif`; ctx.fillText('泥 土 小 伙 伴', x, H * .405)
+  ctx.restore()
+  const ctaW = Math.min(220, W * .24), ctaH = 52, ctaX = x - ctaW / 2, ctaY = H * .535
+  ctx.save(); ctx.shadowColor = 'rgba(244,206,76,.35)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 4
+  ctx.fillStyle = C.cream; rr(ctaX, ctaY, ctaW, ctaH, 26); ctx.shadowColor = 'transparent'
+  ctx.strokeStyle = 'rgba(180,137,72,.82)'; ctx.lineWidth = 2; ctx.stroke()
+  ctx.fillStyle = '#533217'; ctx.font = '900 18px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('开始探索', x, ctaY + ctaH / 2)
+  ctx.restore()
+  addControl(ctaX, ctaY, ctaW, ctaH, () => { scene = 'map'; mapNeedsFocus = true; wx.setStorageSync('seenIntro', 1); sound('win') }, true)
 }
 
-function mapNodes() {
-  let y = MAP_TOP, chapter = 0
-  const spread = Math.min(118, W * .15)
-  return LEVELS.map((level, index) => { if (level.chapter !== chapter) { y += chapter ? MAP_CHAPTER_GAP : 0; chapter = level.chapter } const node = { level, index, x: W / 2 + Math.sin(index * 1.18) * spread, y }; y += MAP_GAP; return node })
+function mapLayout() {
+  const chapters = []
+  LEVELS.forEach((level, index) => {
+    let chapter = chapters.find(item => item.number === level.chapter)
+    if (!chapter) { chapter = { number: level.chapter, name: level.chapterName, levels: [] }; chapters.push(chapter) }
+    chapter.levels.push({ level, index })
+  })
+  const nodes = [], labels = [], pages = Math.ceil(chapters.length / 2), totalHeight = pages * MAP_PAGE_HEIGHT
+  chapters.forEach((chapter, chapterIndex) => {
+    const page = Math.floor(chapterIndex / 2), lower = chapterIndex % 2 === 1
+    const y = totalHeight * (.12 + chapterIndex * .075)
+    const count = chapter.levels.length, left = W * .11, right = mapSettingsOpen ? W - Math.min(190, W * .2) - 90 : W * .84
+    labels.push({ chapter, x: W * (lower ? .36 : .32), y: y - 43 })
+    chapter.levels.forEach(({ level, index }, i) => nodes.push({ level, index, page, x: count === 1 ? W * .5 : left + (right - left) * i / (count - 1), y }))
+  })
+  return { chapters, labels, nodes, pages }
 }
 
 function focusMapCurrent() {
-  const unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length), node = mapNodes()[unlocked - 1]
+  const unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length), node = mapLayout().nodes[unlocked - 1]
   mapScrollY = Math.max(0, Math.min(mapMaxScroll(), node.y - (MAP_VIEW_TOP + MAP_VIEW_BOTTOM) / 2)); mapVelocityY = 0; mapNeedsFocus = false
 }
 
-function mapMaxScroll() { const nodes = mapNodes(); return Math.max(0, nodes[nodes.length - 1].y + MAP_TOP - MAP_VIEW_BOTTOM) }
+function mapMaxScroll() { const layout = mapLayout(); return Math.max(0, layout.pages * MAP_PAGE_HEIGHT - (MAP_VIEW_BOTTOM - MAP_VIEW_TOP)) }
 
 function updateMapScroll() {
   if (mapNeedsFocus) focusMapCurrent()
@@ -102,35 +187,65 @@ function updateMapScroll() {
 }
 
 function mapScreen(time) {
-  background('#503d47'); controls = []; updateMapScroll()
-  const nodes = mapNodes(), unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length), current = unlocked - 1
+  ctx.fillStyle = '#21191e'; ctx.fillRect(0, 0, W, H); controls = []; updateMapScroll()
+  const layout = mapLayout(), nodes = layout.nodes, unlocked = Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length), current = unlocked - 1
+  // Let the tree artwork continue behind the top safe area while keeping
+  // labels and level controls inside the interactive viewport below it.
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip(); ctx.translate(0, -mapScrollY)
+  if (MAP_ART.background.width) ctx.drawImage(MAP_ART.background, 0, 0, W, layout.pages * MAP_PAGE_HEIGHT)
+  ctx.restore()
   ctx.save(); ctx.beginPath(); ctx.rect(0, MAP_VIEW_TOP, W, MAP_VIEW_BOTTOM - MAP_VIEW_TOP); ctx.clip(); ctx.translate(0, -mapScrollY)
-  ctx.lineCap = 'round'
-  for (let i = 0; i < nodes.length - 1; i++) {
-    const a = nodes[i], b = nodes[i + 1], mid = (a.y + b.y) / 2
-    ctx.strokeStyle = i < current ? 'rgba(244,206,76,.68)' : 'rgba(31,23,31,.48)'; ctx.lineWidth = i < current ? 13 : 9; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.bezierCurveTo(a.x, mid, b.x, mid, b.x, b.y); ctx.stroke()
-    ctx.strokeStyle = i < current ? 'rgba(255,247,190,.25)' : 'rgba(255,255,255,.06)'; ctx.lineWidth = 3; ctx.stroke()
-  }
-  nodes.forEach(({ level, index: i, x, y }, n) => {
-    if (!i || level.chapter !== nodes[n - 1].level.chapter) {
-      ctx.fillStyle = 'rgba(25,20,24,.72)'; rr(W / 2 - 106, y - 45, 212, 28, 14); ctx.fillStyle = C.cream; ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(`第${level.chapter}章 · ${level.chapterName}`, W / 2, y - 31)
+  layout.labels.forEach(({ chapter, x, y }) => {
+    const labelW = Math.min(196, W * .23)
+    ctx.fillStyle = 'rgba(20,15,19,.88)'; rr(x - labelW / 2, y - 15, labelW, 30, 15)
+    ctx.strokeStyle = 'rgba(247,240,206,.13)'; ctx.lineWidth = 1; ctx.stroke()
+    ctx.fillStyle = C.cream; ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(`第${chapter.number}章 · ${chapter.name}`, x, y)
+  })
+  nodes.forEach(({ level, index: i, x, y }) => {
+    const available = i < unlocked, active = i === current
+    const size = active ? 96 + Math.sin(time / 280) * 3 : 72, sprite = active ? MAP_ART.current : available ? MAP_ART.complete : MAP_ART.locked
+    if (sprite.width) ctx.drawImage(sprite, x - size / 2, y - size / 2, size, size)
+    else { ctx.fillStyle = active ? C.yellow : available ? C.green : C.deep; ctx.beginPath(); ctx.arc(x, y, size * .34, 0, 7); ctx.fill() }
+    ctx.fillStyle = available ? C.ink : 'rgba(247,240,206,.5)'; ctx.font = `900 ${active ? 25 : 19}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(i + 1, x, y + 1)
+    if (!available) {
+      ctx.save(); ctx.strokeStyle = 'rgba(247,240,206,.58)'; ctx.fillStyle = 'rgba(20,15,19,.88)'; ctx.lineWidth = 2.2
+      ctx.beginPath(); ctx.arc(x, y + size * .25, 6, Math.PI, 0); ctx.stroke(); rr(x - 7, y + size * .24, 14, 12, 3); ctx.restore()
     }
-    const available = i < unlocked, active = i === current, best = Number(wx.getStorageSync(`best_${i}`)) || 0, radius = active ? 31 + Math.sin(time / 280) * 2 : 24
-    if (active) { ctx.strokeStyle = `rgba(244,206,76,${.35 + Math.sin(time / 280) * .12})`; ctx.lineWidth = 8; ctx.beginPath(); ctx.arc(x, y, radius + 10, 0, 7); ctx.stroke() }
-    ctx.shadowColor = active ? C.yellow : 'transparent'; ctx.shadowBlur = active ? 18 : 0; ctx.fillStyle = available ? (active ? C.yellow : best ? C.green : C.cream) : 'rgba(30,24,31,.72)'; ctx.beginPath(); ctx.arc(x, y, radius, 0, 7); ctx.fill(); ctx.shadowColor = 'transparent'
-    ctx.fillStyle = available ? C.ink : 'rgba(255,255,255,.28)'; ctx.font = `900 ${active ? 19 : 15}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(available ? i + 1 : '·', x, y - 2)
-    ctx.fillStyle = available ? C.cream : 'rgba(255,255,255,.32)'; ctx.font = '700 11px sans-serif'; ctx.fillText(active ? `继续 · ${level.name}` : best ? `✓ ${best}步` : available ? level.name : '未生长', x, y + radius + 16)
+    if (active || available) {
+      const text = active ? `继续 · ${level.name}` : '已通关', labelW = active ? 142 : 76
+      ctx.fillStyle = 'rgba(20,15,19,.9)'; rr(x - labelW / 2, y + size * .31, labelW, 28, 14)
+      ctx.strokeStyle = active ? 'rgba(244,206,76,.52)' : 'rgba(247,240,206,.1)'; ctx.lineWidth = 1; ctx.stroke()
+      ctx.fillStyle = active ? C.cream : 'rgba(247,240,206,.72)'; ctx.font = active ? '800 12px sans-serif' : '700 11px sans-serif'; ctx.fillText(fitText(text, labelW - 12), x, y + size * .31 + 14)
+    }
     const screenY = y - mapScrollY
-    if (available && screenY > MAP_VIEW_TOP - radius && screenY < MAP_VIEW_BOTTOM + radius) addControl(x - radius - 12, screenY - radius - 12, (radius + 12) * 2, (radius + 12) * 2, () => { game.load(i); clearAnimation(); scene = 'play'; transition = 1; sound('select') })
+    if (available && screenY > MAP_VIEW_TOP - size / 2 && screenY < MAP_VIEW_BOTTOM + size / 2) addControl(x - size / 2, screenY - size / 2, size, size, () => { game.load(i); clearAnimation(); scene = 'play'; transition = 1; sound('select') })
   })
   ctx.restore()
   const currentNode = nodes[current], distance = Math.abs(currentNode.y - mapScrollY - (MAP_VIEW_TOP + MAP_VIEW_BOTTOM) / 2)
-  ctx.fillStyle = C.cream; ctx.font = '900 21px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText('生命树', 22, HEADER_Y)
-  ctx.fillStyle = 'rgba(255,255,255,.65)'; ctx.font = '12px sans-serif'; ctx.fillText('上滑看未来 · 下滑看足迹', 22, HEADER_Y + 18)
-  if (distance > MAP_GAP * 1.2) button('回到当前', W / 2 - 47, FOOTER_Y - 43, 94, () => { mapNeedsFocus = true; sound('select') })
-  button('返回标题', 18, FOOTER_Y, 90, () => { scene = 'title' })
-  button(directionButtons ? '辅助键：开' : '辅助键：关', W / 2 - 48, FOOTER_Y, 96, () => { directionButtons = !directionButtons; wx.setStorageSync('directionButtons', directionButtons); sound('select') })
-  button(muted ? '声音：关' : '声音：开', W - 104, FOOTER_Y, 86, () => { muted = !muted; wx.setStorageSync('muted', muted); if (!muted) sound('select') })
+  ctx.save(); ctx.shadowColor = 'rgba(8,5,7,.9)'; ctx.shadowBlur = 8
+  ctx.fillStyle = C.cream; ctx.font = '900 23px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText('生命树', 24, SAFE_TOP + 28)
+  ctx.fillStyle = 'rgba(247,240,206,.72)'; ctx.font = '12px sans-serif'; ctx.fillText('土壤深处，了解根源', 24, SAFE_TOP + 47)
+  ctx.fillStyle = C.yellow; ctx.font = '800 14px sans-serif'; ctx.fillText(`${unlocked} / ${LEVELS.length} 已开放`, 24, SAFE_TOP + 68); ctx.restore()
+
+  const panelW = Math.min(190, W * .2), panelX = W - panelW - 8, toolX = Math.min(W - 34, PLAY_HEADER_RIGHT - 28), toolTop = SAFE_TOP + 28
+  mapRoundButton(toolX, toolTop, () => { mapSettingsOpen = !mapSettingsOpen; sound('select') }, 'gear')
+  if (mapSettingsOpen) {
+    const panelY = SAFE_TOP + 58, panelH = H - SAFE_BOTTOM - panelY - 10
+    ctx.save(); ctx.shadowColor = 'rgba(8,5,7,.62)'; ctx.shadowBlur = 20; ctx.shadowOffsetX = -7
+    ctx.fillStyle = 'rgba(25,19,20,.94)'; rr(panelX, panelY, panelW, panelH, 26)
+    ctx.shadowColor = 'transparent'; ctx.strokeStyle = 'rgba(180,137,72,.45)'; ctx.lineWidth = 1.2; ctx.stroke()
+    ctx.fillStyle = C.cream; ctx.font = '900 21px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('设置', panelX + 20, panelY + 30)
+    ctx.strokeStyle = 'rgba(247,240,206,.2)'; ctx.beginPath(); ctx.moveTo(panelX + 18, panelY + 54); ctx.lineTo(panelX + panelW - 18, panelY + 54); ctx.stroke()
+    ctx.fillStyle = C.cream; ctx.font = '800 14px sans-serif'; ctx.fillText('辅助键', panelX + 20, panelY + 78)
+    mapSegmentedToggle(panelX + 20, panelY + 94, directionButtons, () => { directionButtons = !directionButtons; wx.setStorageSync('directionButtons', directionButtons); sound('select') })
+    ctx.textAlign = 'left'; ctx.fillStyle = C.cream
+    ctx.fillText('声音', panelX + 20, panelY + 153)
+    mapSegmentedToggle(panelX + 20, panelY + 169, !muted, () => { muted = !muted; wx.setStorageSync('muted', muted); if (!muted) sound('select') })
+    ctx.restore()
+  }
+  const backX = mapSettingsOpen ? panelX + panelW / 2 : toolX, backY = H - SAFE_BOTTOM - 34
+  mapRoundButton(backX, backY, () => { scene = 'title'; mapSettingsOpen = false; sound('select') }, 'back')
+  if (distance > MAP_PAGE_HEIGHT * .55) button('回到当前', 18, H - SAFE_BOTTOM - BUTTON_H - 12, 100, () => { mapNeedsFocus = true; sound('select') })
 }
 
 function object(type, x, y, s, t, active = false) {
@@ -183,6 +298,12 @@ function object(type, x, y, s, t, active = false) {
   }
   if (type === 'shortGate' || type === 'longGate') {
     ctx.fillStyle = type === 'shortGate' ? '#86d8a0' : '#d6a36b'; rr(x + s * .18, y + s * .08, s * .64, s * .84, s * .14); ctx.shadowColor = 'transparent'; ctx.fillStyle = C.ink; ctx.font = `900 ${s * .24}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(type === 'shortGate' ? '≤2' : '≥4', cx, cy)
+  }
+  if (type === 'oneWay') {
+    ctx.shadowColor = 'transparent'; ctx.fillStyle = 'rgba(111,196,188,.22)'; rr(x + s * .08, y + s * .08, s * .84, s * .84, s * .2)
+    const angle = { '>': 0, v: Math.PI / 2, '<': Math.PI, '^': -Math.PI / 2 }[active] || 0
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(angle); ctx.strokeStyle = '#8de4d6'; ctx.lineWidth = Math.max(2, s * .09); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    ctx.beginPath(); ctx.moveTo(-s * .23, 0); ctx.lineTo(s * .2, 0); ctx.moveTo(s * .04, -s * .16); ctx.lineTo(s * .2, 0); ctx.lineTo(s * .04, s * .16); ctx.stroke(); ctx.restore()
   }
   if (['button', 'buddyButton', 'headButton'].includes(type)) {
     if (active) ctx.translate(0, s * .07)
@@ -286,15 +407,18 @@ function characterFeel(worm, index, now) {
 
 function play(time) {
   controls = []; ctx.save(); if (shake > 0) { ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake *= .82 }
-  background(game.chapter === '苔藓庭院' ? '#65735b' : game.chapter === '曲根回廊' ? '#735644' : game.chapter === '深处的家' ? '#584158' : C.dirt)
+  const theme = currentChapterTheme(), chapterNumber = LEVELS[game.level]?.chapter || 1
+  playBackdrop(theme)
   const availableH = PLAY_VIEW_BOTTOM - PLAY_VIEW_TOP, tile = Math.floor(Math.min((W - 32) / game.w, availableH / game.h)), ox = Math.floor((W - game.w * tile) / 2)
   const oy = PLAY_VIEW_TOP + Math.min(Math.floor(Math.max(0, availableH - game.h * tile) * .15), 16)
   boardLayout = { tile, ox, oy }
-  ctx.fillStyle = C.tunnel; for (let y = 0; y < game.h; y++) for (let x = 0; x < game.w; x++) if (!game.walls.has(key([x, y]))) {
+  ctx.fillStyle = theme.floor; ctx.strokeStyle = theme.rim; ctx.lineWidth = 1
+  for (let y = 0; y < game.h; y++) for (let x = 0; x < game.w; x++) if (!game.walls.has(key([x, y]))) {
     rr(ox + x * tile - 1, oy + y * tile - 1, tile + 2, tile + 2, tile * .19)
-    ctx.fillStyle = 'rgba(255,255,255,.018)'; ctx.beginPath(); ctx.arc(ox + (x + .25) * tile, oy + (y + .28) * tile, Math.max(1, tile * .025), 0, 7); ctx.fill(); ctx.fillStyle = C.tunnel
+    ctx.stroke()
+    ctx.fillStyle = 'rgba(255,255,255,.026)'; ctx.beginPath(); ctx.arc(ox + (x + .25) * tile, oy + (y + .28) * tile, Math.max(1, tile * .025), 0, 7); ctx.fill(); ctx.fillStyle = theme.floor
   }
-  ctx.fillStyle = C.ridge; game.walls.forEach(p => { const [x, y] = p.split(',').map(Number); rr(ox + x * tile + 2, oy + y * tile + 3, tile - 4, tile - 5, tile * .14); ctx.fillStyle = 'rgba(255,210,185,.07)'; rr(ox + x * tile + 5, oy + y * tile + 5, tile - 10, Math.max(2, tile * .08), tile * .04); ctx.fillStyle = C.ridge })
+  ctx.fillStyle = theme.wall; game.walls.forEach(p => { const [x, y] = p.split(',').map(Number); rr(ox + x * tile + 2, oy + y * tile + 3, tile - 4, tile - 5, tile * .14); ctx.fillStyle = theme.rim; rr(ox + x * tile + 5, oy + y * tile + 5, tile - 10, Math.max(2, tile * .08), tile * .04); ctx.fillStyle = theme.wall })
   const now = Date.now()
   if (failedMotion && now - failedMotion.start >= 230) failedMotion = null
   const occupied = new Set(game.liveWorms().flat().map(key))
@@ -306,6 +430,7 @@ function play(time) {
   })
   each(game.buttons, 'button'); each(game.buddyButtons, 'buddyButton'); each(game.headButtons, 'headButton'); each(game.nests, 'nest'); each(game.scissors, 'scissors')
   each(game.conductors, 'conductor'); each(game.fusions, 'fusion'); game.toggles.forEach(p => { const [x, y] = p.split(',').map(Number); object('toggle', ox + x * tile, oy + y * tile, tile, time, game.toggleStates.get(p)) }); each(game.shortGates, 'shortGate'); each(game.longGates, 'longGate')
+  game.oneWays.forEach((direction, p) => { const [x, y] = p.split(',').map(Number); object('oneWay', ox + x * tile, oy + y * tile, tile, time, direction) })
   game.doors.forEach(p => { const [x, y] = p.split(',').map(Number), px = ox + x * tile, py = oy + y * tile, open = game.doorOpen([x, y]); ctx.shadowColor = open ? C.yellow : 'transparent'; ctx.shadowBlur = tile * .35; ctx.fillStyle = open ? 'rgba(244,206,76,.42)' : C.cream; rr(px + tile * .35, py, tile * .3, tile, tile * .09); ctx.shadowColor = 'transparent' })
   game.exits.forEach(p => { const [x, y] = p.split(',').map(Number); object('exit', ox + x * tile, oy + y * tile, tile, time, game.won) })
   each(game.apples, 'apple'); each(game.rocks, 'rock'); each(game.eggs, 'egg')
@@ -346,17 +471,20 @@ function play(time) {
   game.worms.forEach((worm, i) => { if (game.isExited(worm)) return; const [x, y] = worm[0], size = tile * 1.35, offset = (size - tile) / 2; addControl(ox + x * tile - offset, oy + y * tile - offset, size, size, () => { inputQueue = []; game.select(i); wx.setStorageSync('learnedSwitch', 1); sound('select') }) })
   particlesDraw(); ctx.restore()
 
-  ctx.save(); ctx.fillStyle = 'rgba(25,20,24,.78)'; rr(10, PLAY_HEADER_TOP, PLAY_HEADER_RIGHT - 10, PLAY_HEADER_HEIGHT, 14)
-  const stats = `${game.moves} 步 · ${game.liveWorms().length}/${game.worms.length} 位未回家`
-  ctx.textBaseline = 'middle'; ctx.fillStyle = C.cream; ctx.font = '800 16px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(fitText(`${game.level + 1}. ${game.name}`, PLAY_HEADER_RIGHT - 46 - ctx.measureText(stats).width), 22, PLAY_HEADER_TOP + 14)
-  ctx.fillStyle = 'rgba(255,255,255,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(fitText(game.message || game.hint, PLAY_HEADER_RIGHT - 34), 22, PLAY_HEADER_TOP + 33)
-  ctx.textAlign = 'right'; ctx.fillText(stats, PLAY_HEADER_RIGHT - 12, PLAY_HEADER_TOP + 14); ctx.restore()
-  const utilityX = directionButtons ? 24 : W / 2 - 108, mapX = directionButtons ? W - 69 : utilityX + 160
-  button('↶ 撤回一步', utilityX, FOOTER_Y, 86, () => { game.undo(); clearAnimation(); sound('move') }, false, game.history.length === 0)
-  button('重开', utilityX + 94, FOOTER_Y, 58, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 56, () => { scene = 'map'; mapNeedsFocus = true })
+  ctx.save(); ctx.shadowColor = 'rgba(8,5,7,.9)'; ctx.shadowBlur = 10; ctx.font = '800 12px sans-serif'
+  const status = `${game.moves} 步 · ${game.liveWorms().length}/${game.worms.length} 伙伴`, statusW = Math.min(154, Math.max(104, ctx.measureText(status).width + 24))
+  ctx.fillStyle = 'rgba(25,20,24,.88)'; rr(PLAY_HEADER_RIGHT - statusW - 8, PLAY_HEADER_TOP + 7, statusW, 28, 14)
+  ctx.shadowColor = 'transparent'; ctx.strokeStyle = theme.accent; ctx.globalAlpha = .56; ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = 1
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillStyle = theme.accent; ctx.font = '800 10px sans-serif'; ctx.fillText(`第${chapterNumber}章 · ${game.chapter} · ${theme.motif}`, 22, PLAY_HEADER_TOP + 9)
+  ctx.fillStyle = C.cream; ctx.font = '900 17px sans-serif'; ctx.fillText(fitText(`${game.level + 1}. ${game.name}`, PLAY_HEADER_RIGHT - statusW - 42), 22, PLAY_HEADER_TOP + 27)
+  ctx.fillStyle = 'rgba(247,240,206,.72)'; ctx.font = '12px sans-serif'; ctx.fillText(fitText(game.message || game.hint, PLAY_HEADER_RIGHT - 42), 22, PLAY_HEADER_TOP + 46)
+  ctx.fillStyle = theme.accent; ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(status, PLAY_HEADER_RIGHT - statusW / 2 - 8, PLAY_HEADER_TOP + 21); ctx.restore()
+  const utilityX = directionButtons ? 16 : W / 2 - 112, mapX = directionButtons ? W - 80 : utilityX + 160
+  button('撤回', utilityX, FOOTER_Y, 80, () => { game.undo(); clearAnimation(); sound('move') }, false, game.history.length === 0)
+  button('重开', utilityX + 88, FOOTER_Y, 64, () => { game.load(game.level); clearAnimation() }); button('地图', mapX, FOOTER_Y, 64, () => { scene = 'map'; mapNeedsFocus = true })
   const fuseReady = game.canFuse(), showFuseHint = fuseReady && !wx.getStorageSync('learnedFuse')
   if (fuseReady) {
-    const fuseX = W - 132, fuseY = FOOTER_Y - 44
+    const fuseX = W - 142, fuseY = FOOTER_Y - BUTTON_H - 8
     if (showFuseHint) {
       const pulse = .55 + (Math.sin(time / 220) + 1) * .16
       ctx.save()
@@ -386,7 +514,7 @@ function play(time) {
       sound('cut')
     }, true)
   }
-  if (directionButtons) { const directions = [['←','left'], ['↑','up'], ['↓','down'], ['→','right']], start = W / 2 - 81; directions.forEach(([label, direction], i) => button(label, start + i * 42, FOOTER_Y, 36, () => enqueue(direction))) }
+  if (directionButtons) { const directions = [['←','left'], ['↑','up'], ['↓','down'], ['→','right']], start = W / 2 - 88; directions.forEach(([label, direction], i) => button(label, start + i * 44, FOOTER_Y, 40, () => enqueue(direction))) }
 
   if (game.level === 0 && game.moves === 0 && !wx.getStorageSync('learnedSwipe')) {
     const pulse = Math.sin(time / 260) * 8
@@ -399,11 +527,14 @@ function play(time) {
 
   if (transition > 0) { ctx.fillStyle = `rgba(20,15,19,${transition})`; ctx.fillRect(0, 0, W, H); transition = Math.max(0, transition - .045) }
   if (game.won && winReady) {
-    ctx.fillStyle = 'rgba(22,17,21,.84)'; rr(W / 2 - 145, H / 2 - 76, 290, 152, 23)
-    ctx.fillStyle = C.cream; ctx.font = '900 27px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('伙伴们找到路了！', W / 2, H / 2 - 34)
-    ctx.font = '13px sans-serif'; ctx.fillStyle = C.white; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴`, W / 2, H / 2 - 3)
-    if (game.level < LEVELS.length - 1) button('继续深入 →', W / 2 - 62, H / 2 + 20, 124, () => { game.load(game.level + 1); clearAnimation(); wx.setStorageSync('caveLevel', game.level); scene = 'play'; transition = 1 })
-    else button('回到地图', W / 2 - 52, H / 2 + 20, 104, () => { scene = 'map'; mapNeedsFocus = true })
+    const best = Number(wx.getStorageSync(`best_${game.level}`)) || game.moves
+    ctx.fillStyle = 'rgba(10,7,9,.38)'; ctx.fillRect(0, 0, W, H)
+    ctx.shadowColor = 'rgba(8,5,8,.42)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 10; ctx.fillStyle = 'rgba(22,17,21,.96)'; rr(W / 2 - 168, H / 2 - 91, 336, 182, 28); ctx.shadowColor = 'transparent'
+    ctx.fillStyle = theme.accent; ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`第 ${game.level + 1} 关完成 · ${theme.motif}`, W / 2, H / 2 - 61)
+    ctx.fillStyle = C.cream; ctx.font = '900 28px sans-serif'; ctx.fillText('伙伴们找到路了！', W / 2, H / 2 - 28)
+    ctx.font = '13px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.76)'; ctx.fillText(`${game.moves} 步 · ${game.worms.length} 位伙伴 · 最佳 ${best} 步`, W / 2, H / 2 + 1)
+    if (game.level < LEVELS.length - 1) button('继续深入', W / 2 - 76, H / 2 + 27, 152, () => { game.load(game.level + 1); clearAnimation(); wx.setStorageSync('caveLevel', game.level); scene = 'play'; transition = 1 }, true)
+    else button('回到地图', W / 2 - 70, H / 2 + 27, 140, () => { scene = 'map'; mapNeedsFocus = true }, true)
   }
 }
 

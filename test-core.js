@@ -9,13 +9,15 @@ assert(LEVELS.every(level => level.id && level.width && level.height && level.ob
 assert(!require('fs').readFileSync(require.resolve('./core'), 'utf8').includes('levelId ==='))
 assert(gameSource.includes('DPR = Math.min(sys.pixelRatio || 1, 2)'))
 assert(gameSource.includes("activeAnimation() ? 0 : scene === 'title' ? 250 : 67"))
+assert.equal([...gameSource.matchAll(/^  \d+: \{ accent:/gm)].length, new Set(LEVELS.map(level => level.chapter)).size)
+assert(gameSource.includes('theme.motif'))
 assert.equal(resolveSwipe(30, 3, 800), 'right')
 assert.equal(resolveSwipe(30, 27, 800), null)
 assert.equal(resolveSwipe(10, 2, 800), null)
 assert.equal(resolveSwipe(70, 45, 800), 'right')
 assert.equal(resolveSwipe(43, 75, 800), 'down')
 assert.equal(resolveSwipe(70, 68, 800), null)
-assert.equal(LEVELS.length, 45)
+assert.equal(LEVELS.length, 50)
 const tokenType = { B: 'pressure', P: 'buddy_pressure', H: 'head_pressure', '+': 'conductor', T: 'toggle', D: 'door' }
 LEVELS.forEach(level => {
   assert(level.tiles.every(row => row.length === level.width), `${level.id} row width mismatch`)
@@ -27,11 +29,11 @@ LEVELS.forEach(level => {
   level.links.forEach(({ source, target }) => { assert(ids.has(source), `${level.id} missing link source ${source}`); assert(ids.has(target), `${level.id} missing link target ${target}`) })
 })
 
-function exitReachable(level, doorsOpen, start = level.entities.find(entity => entity.type === 'WORM').segments[0]) {
+function exitReachable(level, doorsOpen, start = level.entities.find(entity => entity.type === 'WORM').segments[0], targetExit = null) {
   const seen = new Set([start.join(',')]), queue = [start]
   while (queue.length) {
     const [x, y] = queue.shift()
-    if (level.tiles[y][x] === 'X') return true
+    if (targetExit ? x === targetExit[0] && y === targetExit[1] : level.tiles[y][x] === 'X') return true
     for (const [dx, dy] of [[0,-1], [0,1], [-1,0], [1,0]]) {
       const nx = x + dx, ny = y + dy, cell = level.tiles[ny]?.[nx], id = `${nx},${ny}`
       if (cell && cell !== '#' && (doorsOpen || cell !== 'D') && !seen.has(id)) { seen.add(id); queue.push([nx, ny]) }
@@ -41,7 +43,8 @@ function exitReachable(level, doorsOpen, start = level.entities.find(entity => e
 }
 LEVELS.filter(level => level.status === 'playtest' && level.links.length).forEach(level => {
   const starts = level.entities.filter(entity => entity.type === 'WORM').map(entity => entity.segments[0])
-  assert(starts.some(start => !exitReachable(level, false, start)), `${level.id} doors block nobody`)
+  const exits = level.tiles.flatMap((row, y) => [...row].flatMap((cell, x) => cell === 'X' ? [[x, y]] : []))
+  assert(starts.some(start => exits.some(exit => !exitReachable(level, false, start, exit) && exitReachable(level, true, start, exit))), `${level.id} doors block no route to an exit`)
   assert(starts.every(start => exitReachable(level, true, start)), `${level.id} has no route after its doors open`)
 })
 
@@ -181,4 +184,9 @@ assert.equal(toggle.toggleStates.get('4,2'), true)
 assert.equal(toggle.doorOpen([10, 2]), true)
 assert.equal(toggle.undo(), true)
 assert.equal(toggle.toggleStates.get('4,2'), false)
+
+const oneWay = new Game(45)
+assert.equal(oneWay.interaction('right'), 'move')
+oneWay.worm = [[4, 3], [4, 4]]
+assert.equal(oneWay.interaction('left'), 'blocked')
 console.log('core checks passed')

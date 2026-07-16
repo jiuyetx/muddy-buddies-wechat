@@ -24,8 +24,9 @@ class Segment {
 }
 
 function parseLevel(source) {
-  const state = { walls: [], apples: [], rocks: [], buttons: [], buddyButtons: [], headButtons: [], conductors: [], fusions: [], toggles: [], shortGates: [], longGates: [], doors: [], scissors: [], nests: [], eggs: [], exits: [], entityById: new Map(), entityAt: new Map() }
+  const state = { walls: [], apples: [], rocks: [], buttons: [], buddyButtons: [], headButtons: [], conductors: [], fusions: [], toggles: [], shortGates: [], longGates: [], doors: [], scissors: [], nests: [], eggs: [], exits: [], oneWays: new Map(), entityById: new Map(), entityAt: new Map() }
   source.tiles.forEach((row, y) => [...row].forEach((cell, x) => {
+    if ('^v<>'.includes(cell)) { state.oneWays.set(key([x, y]), cell); return }
     const definition = TILE_TYPES[cell]; if (!definition) return
     const [collection, type, components] = definition, position = [x, y], id = `${type.toLowerCase()}_${x}_${y}`, entity = { id, type, position, components }
     state.entityById.set(id, entity); state.entityAt.set(key(position), entity)
@@ -154,11 +155,12 @@ class Game {
     return true
   }
 
-  blocked(p, movingTail, worm = null) {
+  blocked(p, movingTail, worm = null, direction = null) {
     const target = key(p)
     const bodies = new Set(this.liveWorms().flat().map(key))
     if (movingTail) bodies.delete(key(movingTail))
-    return this.walls.has(target) || bodies.has(target) || this.rocks.has(target) || this.eggs.has(target) || this.shortGates.has(target) && (!worm || worm.length > 2) || this.longGates.has(target) && (!worm || worm.length < 4) || (this.doors.has(target) && !this.doorOpen(p))
+    const oneWayDirection = { '^': 'up', v: 'down', '<': 'left', '>': 'right' }[this.oneWays.get(target)]
+    return this.walls.has(target) || bodies.has(target) || this.rocks.has(target) || this.eggs.has(target) || oneWayDirection && direction !== oneWayDirection || this.shortGates.has(target) && (!worm || worm.length > 2) || this.longGates.has(target) && (!worm || worm.length < 4) || (this.doors.has(target) && !this.doorOpen(p))
   }
 
   objectiveComplete(objective, target) {
@@ -179,7 +181,7 @@ class Game {
     if (this.exits.has(target)) return 'exit'
     if (this.apples.has(target)) return 'apple'
     const tail = this.worm[this.worm.length - 1]
-    return this.blocked(next, tail, this.worm) ? 'blocked' : 'move'
+    return this.blocked(next, tail, this.worm, direction) ? 'blocked' : 'move'
   }
 
   move(direction) {
@@ -196,8 +198,8 @@ class Game {
 
     if (pushesRock || pushesEgg) {
       const beyond = [next[0] + dx, next[1] + dy]
-      if (this.blocked(beyond, tail)) { this.message = pushesEgg ? '蛋壳很薄，不能硬挤' : '石头后面没有空间'; this.event = 'bump'; return false }
-    } else if (this.blocked(next, tail, this.worm)) { this.message = '这边过不去'; this.event = 'bump'; return false }
+      if (this.blocked(beyond, tail, null, direction)) { this.message = pushesEgg ? '蛋壳很薄，不能硬挤' : '石头后面没有空间'; this.event = 'bump'; return false }
+    } else if (this.blocked(next, tail, this.worm, direction)) { this.message = this.oneWays.has(target) ? '根门只会顺着风纹打开' : '这边过不去'; this.event = 'bump'; return false }
 
     const doorsWereOpen = this.doorsOpen
     this.history.push(this.snapshot())
