@@ -7,4 +7,6 @@ function resolveSwipe(dx, dy, width) {
   return null
 }
 
-module.exports = { resolveSwipe }
+function chapterY(index, pageHeight) { return (Math.floor(index / 2) + (index % 2 ? .72 : .3)) * pageHeight }
+
+module.exports = { resolveSwipe, chapterY }

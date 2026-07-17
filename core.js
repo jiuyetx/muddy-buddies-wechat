@@ -11,6 +11,8 @@ const TILE_TYPES = {
   T: ['toggles', 'TOGGLE', ['TriggerComponent', 'ToggleSwitchComponent']],
   '2': ['shortGates', 'SHORT_GATE', ['LengthGateComponent']], '4': ['longGates', 'LONG_GATE', ['LengthGateComponent']],
   S: ['scissors', 'SCISSORS', ['SplitPointComponent']], N: ['nests', 'NEST', ['TriggerComponent']], E: ['eggs', 'EGG', ['CarryableComponent', 'FragileComponent']],
+  O: ['portals', 'PORTAL', ['TeleportComponent']], C: ['acids', 'ACID_FRUIT', ['CollectibleComponent', 'ShrinkComponent']],
+  K: ['keys', 'HEART_KEY', ['CollectibleComponent', 'KeyComponent']], L: ['locks', 'HEART_LOCK', ['LockComponent', 'BlockingComponent']],
   X: ['exits', 'EXIT', ['ExitComponent']]
 }
 
@@ -24,7 +26,7 @@ class Segment {
 }
 
 function parseLevel(source) {
-  const state = { walls: [], apples: [], rocks: [], buttons: [], buddyButtons: [], headButtons: [], conductors: [], fusions: [], toggles: [], shortGates: [], longGates: [], doors: [], scissors: [], nests: [], eggs: [], exits: [], oneWays: new Map(), entityById: new Map(), entityAt: new Map() }
+  const state = { walls: [], apples: [], rocks: [], buttons: [], buddyButtons: [], headButtons: [], conductors: [], fusions: [], toggles: [], shortGates: [], longGates: [], doors: [], scissors: [], nests: [], eggs: [], exits: [], portals: [], acids: [], keys: [], locks: [], oneWays: new Map(), entityById: new Map(), entityAt: new Map() }
   source.tiles.forEach((row, y) => [...row].forEach((cell, x) => {
     if ('^v<>'.includes(cell)) { state.oneWays.set(key([x, y]), cell); return }
     const definition = TILE_TYPES[cell]; if (!definition) return
@@ -58,6 +60,7 @@ class Game {
     Object.keys(parsed).forEach(name => { this[name] = Array.isArray(parsed[name]) ? new Set(parsed[name]) : parsed[name] })
     this.exit = [...this.exits][0]?.split(',').map(Number) || null
     this.toggleStates = new Map([...this.toggles].map(position => [position, false]))
+    this.keyCount = 0
     this.exited = new Set()
     this.history = []
     this.moves = 0
@@ -99,12 +102,12 @@ class Game {
 
   snapshot() {
     const worms = this.worms.map(worm => worm.map(({ x, y, id, state }) => ({ x, y, id, state: copy(state) })))
-    return { worms, nextSegmentId: this.nextSegmentId, active: this.active, exited: [...this.exited], apples: [...this.apples], rocks: [...this.rocks], eggs: [...this.eggs], toggleStates: [...this.toggleStates], moves: this.moves, won: this.won, eggDelivered: this.eggDelivered }
+    return { worms, nextSegmentId: this.nextSegmentId, active: this.active, exited: [...this.exited], apples: [...this.apples], acids: [...this.acids], keys: [...this.keys], keyCount: this.keyCount, locks: [...this.locks], rocks: [...this.rocks], eggs: [...this.eggs], toggleStates: [...this.toggleStates], moves: this.moves, won: this.won, eggDelivered: this.eggDelivered }
   }
 
   restore(state) {
     this.nextSegmentId = state.nextSegmentId; this.worms = state.worms.map(worm => this.makeWorm(worm)); this.active = state.active; this.exited = new Set(state.exited || []); this.relink()
-    this.apples = new Set(state.apples); this.rocks = new Set(state.rocks); this.eggs = new Set(state.eggs)
+    this.apples = new Set(state.apples); this.acids = new Set(state.acids || []); this.keys = new Set(state.keys || []); this.keyCount = state.keyCount || 0; this.locks = new Set(state.locks || []); this.rocks = new Set(state.rocks); this.eggs = new Set(state.eggs)
     this.toggleStates = new Map(state.toggleStates || [])
     this.moves = state.moves; this.won = state.won; this.eggDelivered = state.eggDelivered
     this.message = ''; this.event = 'undo'; this.buttonChanged = false
@@ -155,13 +158,42 @@ class Game {
     return true
   }
 
-  blocked(p, movingTail, worm = null, direction = null) {
+  portalDestination(position) {
+    if (!this.portals.has(position) || this.portals.size !== 2) return null
+    return [...this.portals].find(portal => portal !== position) || null
+  }
+
+  teleportPositions(next) {
+    const destination = this.portalDestination(key(next)); if (!destination) return null
+    const old = this.worm.map(segment => segment.slice()), moved = [next, ...old.slice(0, -1)], [tx, ty] = destination.split(',').map(Number)
+    const dx = tx - next[0], dy = ty - next[1]
+    return moved.map(([x, y]) => [x + dx, y + dy])
+  }
+
+  teleportBlocked(positions) {
+    const otherBodies = new Set(this.liveWorms().filter(worm => worm !== this.worm).flat().map(key)), seen = new Set()
+    return positions.some(position => {
+      const target = key(position), duplicate = seen.has(target); seen.add(target)
+      return duplicate || this.walls.has(target) || otherBodies.has(target) || this.rocks.has(target) || this.eggs.has(target) || this.locks.has(target) || this.doors.has(target) && !this.doorOpen(position)
+    })
+  }
+
+  blockedReason(p, movingTail, worm = null, direction = null) {
     const target = key(p)
     const bodies = new Set(this.liveWorms().flat().map(key))
     if (movingTail) bodies.delete(key(movingTail))
     const oneWayDirection = { '^': 'up', v: 'down', '<': 'left', '>': 'right' }[this.oneWays.get(target)]
-    return this.walls.has(target) || bodies.has(target) || this.rocks.has(target) || this.eggs.has(target) || oneWayDirection && direction !== oneWayDirection || this.shortGates.has(target) && (!worm || worm.length > 2) || this.longGates.has(target) && (!worm || worm.length < 4) || (this.doors.has(target) && !this.doorOpen(p))
+    if (this.locks.has(target) && this.keyCount === 0) return '需要携带心钥'
+    if (this.shortGates.has(target) && (!worm || worm.length > 2)) return '身体最多只能有2节'
+    if (this.longGates.has(target) && (!worm || worm.length < 4)) return '身体至少需要4节'
+    if (oneWayDirection && direction !== oneWayDirection) return '只能顺着风纹进入'
+    if (this.doors.has(target) && !this.doorOpen(p)) return '先让机关打开这道门'
+    if (this.walls.has(target)) return '这里是坚硬的根墙'
+    if (bodies.has(target)) return '身体挡住了去路'
+    if (this.rocks.has(target) || this.eggs.has(target)) return '前面的东西推不动'
+    return ''
   }
+  blocked(p, movingTail, worm = null, direction = null) { return Boolean(this.blockedReason(p, movingTail, worm, direction)) }
 
   objectiveComplete(objective, target) {
     if (objective.type === 'COLLECT_ALL_APPLES') return this.apples.size === 0
@@ -178,8 +210,12 @@ class Game {
     if (this.eggs.has(target)) return 'egg'
     if (this.rocks.has(target)) return 'rock'
     if (this.scissors.has(target)) return 'scissors'
+    if (this.portals.has(target)) return 'portal'
     if (this.exits.has(target)) return 'exit'
     if (this.apples.has(target)) return 'apple'
+    if (this.acids.has(target)) return 'acid'
+    if (this.keys.has(target)) return 'key'
+    if (this.locks.has(target) && this.keyCount > 0) return 'unlock'
     const tail = this.worm[this.worm.length - 1]
     return this.blocked(next, tail, this.worm, direction) ? 'blocked' : 'move'
   }
@@ -190,16 +226,22 @@ class Game {
     const [dx, dy] = DIRS[direction]
     const [hx, hy] = this.worm[0]
     const next = [hx + dx, hy + dy]
-    const target = key(next)
+    let target = key(next)
     const grows = this.apples.has(target)
+    const shrinks = this.acids.has(target)
+    const collectsKey = this.keys.has(target)
+    const unlocks = this.locks.has(target) && this.keyCount > 0
     const tail = grows ? null : this.worm[this.worm.length - 1]
     const pushesRock = this.rocks.has(target)
     const pushesEgg = this.eggs.has(target)
 
     if (pushesRock || pushesEgg) {
       const beyond = [next[0] + dx, next[1] + dy]
-      if (this.blocked(beyond, tail, null, direction)) { this.message = pushesEgg ? '蛋壳很薄，不能硬挤' : '石头后面没有空间'; this.event = 'bump'; return false }
-    } else if (this.blocked(next, tail, this.worm, direction)) { this.message = this.oneWays.has(target) ? '根门只会顺着风纹打开' : '这边过不去'; this.event = 'bump'; return false }
+      const reason = this.blockedReason(beyond, tail, null, direction)
+      if (reason) { this.message = `${pushesEgg ? '蛋' : '石头'}推不动：${reason}`; this.event = 'bump'; return false }
+    } else if (this.blocked(next, tail, this.worm, direction)) { this.message = this.blockedReason(next, tail, this.worm, direction); this.event = 'bump'; return false }
+    const teleported = this.teleportPositions(next)
+    if (teleported && this.teleportBlocked(teleported)) { this.message = '另一朵回声花周围没有足够空间'; this.event = 'bump'; return false }
 
     const doorsWereOpen = this.doorsOpen
     this.history.push(this.snapshot())
@@ -210,14 +252,19 @@ class Game {
       objects.delete(target); objects.add(far)
       if (pushesEgg && this.nests.has(far)) { this.eggs.delete(far); this.eggDelivered = true; this.message = '蛋安全回到草窝了'; this.event = 'nest' }
       else this.event = 'push'
-    } else this.event = grows ? 'apple' : 'move'
+    } else this.event = grows ? 'apple' : shrinks ? 'acid' : collectsKey ? 'key' : unlocks ? 'unlock' : teleported ? 'portal' : 'move'
 
     const oldPositions = this.worm.map(segment => segment.slice())
     if (grows) this.worm.push(new Segment(...oldPositions[oldPositions.length - 1], `segment-${this.nextSegmentId++}`))
     for (let i = this.worm.length - 1; i > 0; i--) this.worm[i].moveTo(oldPositions[Math.min(i - 1, oldPositions.length - 1)])
     this.worm[0].moveTo(next)
+    if (teleported) { this.worm.forEach((segment, index) => segment.moveTo(teleported[index])); target = key(teleported[0]) }
+    if (shrinks) { this.acids.delete(key(next)); if (this.worm.length > 2) this.worm.pop(); this.message = '酸酸！身体缩短了一截' }
+    if (collectsKey) { this.keys.delete(key(next)); this.keyCount++; this.message = `获得心钥，现有 ${this.keyCount} 把` }
+    if (unlocks) { this.locks.delete(key(next)); this.keyCount--; this.message = `心锁打开，还剩 ${this.keyCount} 把钥匙` }
     this.relink()
     if (grows) { this.apples.delete(target); this.message = '嚼嚼！长了一截' }
+    if (teleported) { this.event = 'portal'; this.message = '嗡——整条身体穿过了回声花' }
     if (this.toggles.has(target)) {
       const on = !this.toggleStates.get(target)
       this.toggleStates.set(target, on)
