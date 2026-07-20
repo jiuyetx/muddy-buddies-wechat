@@ -1,19 +1,21 @@
 const goals = (...types) => types.map(type => ({ type }))
 const link = (source, target, mode = 'WHILE_ACTIVE') => ({ source, target, mode })
-const EARLY_CHAPTER_NAMES = ['泥土之下', '旧根回廊', '苔藓之家']
-const level = (id, chapter, chapterName, name, hint, tiles, worms, objectives = goals('REACH_EXIT'), links = [], verified = false, releasePlan = []) => {
+const EARLY_CHAPTER_NAMES = ['生长土径', '搬运工坊', '伙伴分岔']
+let nextLevel = 0
+const level = (sourceId, chapter, chapterName, name, hint, tiles, worms, objectives = goals('REACH_EXIT'), links = [], verified = false, releasePlan = []) => {
   const sourceChapter = chapter
-  if (chapter <= 5) { const [section, number] = id.split('-').map(Number); chapter = Math.floor(([0, 3, 6, 9, 12][section - 1] + number - 1) / 5) + 1; chapterName = EARLY_CHAPTER_NAMES[chapter - 1] }
+  if (chapter <= 5) { const [section, number] = sourceId.split('-').map(Number); chapter = Math.floor(([0, 3, 6, 9, 12][section - 1] + number - 1) / 5) + 1; chapterName = EARLY_CHAPTER_NAMES[chapter - 1] }
   else chapter -= 2
+  const index = nextLevel++, id = `${Math.floor(index / 5) + 1}-${String(index % 5 + 1).padStart(2, '0')}`
   return {
-    id, chapter, chapterName, name, hint, width: Math.max(...tiles.map(row => row.length)), height: tiles.length, maxUndoHint: 3,
+    sourceIndex: index, id, chapter, chapterName, name, hint, width: Math.max(...tiles.map(row => row.length)), height: tiles.length, maxUndoHint: 3,
     difficulty: chapter <= 3 ? '入门' : chapter <= 8 ? '进阶' : '高难',
     status: sourceChapter <= 3 || verified ? 'playtest' : 'draft', objectives, releasePlan, tiles,
     entities: worms.map((segments, i) => ({ type: 'WORM', id: `worm_${i + 1}`, components: ['BodyComponent'], segments })), links
   }
 }
 
-module.exports = [
+const levels = [
   level('1-01', 1, '泥土之下', '醒来', '滑动屏幕，让小蠕虫找到回家的洞口', [
     '############', '#..........#', '#..........#', '#.......X..#', '#..........#', '############'
   ], [[[2, 3], [2, 2], [3, 2]]]),
@@ -43,34 +45,34 @@ module.exports = [
   ], [[[2, 7], [2, 6], [2, 5]]], goals('REACH_EXIT'), [link('pressure_4_4', 'door_8_2')]),
   level('4-01', 4, '苔藓庭院', '轻拿轻放', '把蛋推入草窝，再进入心形洞口', [
     '################', '#..............#', '#...E......N...#', '#..............#', '#...........X..#', '#..............#', '################'
-  ], [[[2, 2], [2, 3], [3, 3]]], goals('DELIVER_ALL_EGGS', 'REACH_EXIT')),
+  ], [[[2, 2], [2, 3], [3, 3]]], goals('DELIVER_ALL_EGGS', 'REACH_EXIT'), [], true),
   level('4-02', 4, '苔藓庭院', '蛋的弯路', '先把蛋推到下方横道，再绕到右侧送它回窝', [
     '#################', '#......#........#', '#..E...#........#', '#......###......#', '#..........#..N.#', '#..#####........#', '#.............X.#', '#################'
-  ], [[[2, 6], [2, 5], [2, 4]]], goals('DELIVER_ALL_EGGS', 'REACH_EXIT')),
+  ], [[[2, 6], [2, 5], [2, 4]]], goals('DELIVER_ALL_EGGS', 'REACH_EXIT'), [], true),
   level('4-03', 4, '苔藓庭院', '两位搬运工', '让一位伙伴守住按钮，另一位照顾蛋', [
     '##################', '#........#.......#', '#..E.....D....N..#', '#........#.......#', '#..SB....####....#', '#........#..#....#', '#..######.#.#..X.#', '#........#.......#', '##################'
-  ], [[[2, 7], [3, 7], [4, 7], [5, 7], [6, 7], [7, 7]]], goals('DELIVER_ALL_EGGS', 'REACH_EXIT'), [link('pressure_4_4', 'door_9_2')]),
+  ], [[[2, 7], [3, 7], [4, 7], [5, 7], [6, 7], [7, 7]]], goals('DELIVER_ALL_EGGS', 'REACH_EXIT'), [link('pressure_4_4', 'door_9_2')], true),
   level('5-01', 5, '深处的家', '果园迷根', '吃果子的顺序，会改变身体通过弯路的方式', [
     '##################', '#..A....#........#', '#.......#....A...#', '#...#####........#', '#...........#....#', '#..#####....#....#', '#.......A...#..X.#', '#................#', '##################'
-  ], [[[2, 7], [2, 6], [3, 6]]], goals('COLLECT_ALL_APPLES', 'REACH_EXIT')),
+  ], [[[2, 7], [2, 6], [3, 6]]], goals('COLLECT_ALL_APPLES', 'REACH_EXIT'), [], true),
   level('5-02', 5, '深处的家', '三岔根系', '多个伙伴会互相挡路，先分配各自任务', [
     '###################', '#.......#.........#', '#...B...D......X..#', '#.......#.........#', '#..S....#####.....#', '#.......#....#....#', '#..######....#....#', '#.......#.........#', '###################'
-  ], [[[2, 7], [3, 7], [4, 7], [5, 7], [6, 7], [7, 7]], [[10, 7], [11, 7]]], goals('REACH_EXIT'), [link('pressure_4_2', 'door_8_2')]),
+  ], [[[2, 7], [3, 7], [4, 7], [5, 7], [6, 7], [7, 7]], [[10, 7], [11, 7]]], goals('REACH_EXIT'), [link('pressure_4_2', 'door_8_2')], true),
   level('5-03', 5, '深处的家', '最后的回家路', '照顾伙伴、果子和蛋，所有线索都在路上', [
     '####################', '#..A....#..........#', '#.......D.....N....#', '#...R...#..........#', '#..SB...#####......#', '#.......#....#.....#', '#..#####.....#..E..#', '#.......#.A..#...X.#', '#.......#..........#', '####################'
-  ], [[[2, 8], [3, 8], [4, 8], [5, 8], [6, 8], [6, 7]]], goals('COLLECT_ALL_APPLES', 'DELIVER_ALL_EGGS', 'REACH_EXIT'), [link('pressure_4_4', 'door_8_2')]),
+  ], [[[2, 8], [3, 8], [4, 8], [5, 8], [6, 8], [6, 7]]], goals('COLLECT_ALL_APPLES', 'DELIVER_ALL_EGGS', 'REACH_EXIT'), [link('pressure_4_4', 'door_8_2')], true),
   level('6-01', 6, '菌丝工坊', '岩石换岗', '把岩石推上按钮，释放所有守门伙伴', [
     '#################', '#.......#...#...#', '#...B.R.#...#...#', '#..##...#.......#', '#..#....D.##.X..#', '#....#..#...#...#', '#.......#.......#', '#################'
   ], [[[7, 3], [6, 3]], [[2, 5], [2, 6]], [[4, 6], [3, 6]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_4_2', 'door_8_4')], true, [{ door: 'door_8_4', releaseBy: 'rock' }]),
   level('6-02', 6, '菌丝工坊', '接力开门', '交换按钮岗位，让两位伙伴都能回家', [
     '####################', '#....B..D..#.......#', '#..##...#..#..###..#', '#.......#....B.....#', '#.......D.###......#', '#.......#.......X..#', '####################'
-  ], [[[3, 5], [3, 4]], [[13, 5], [13, 4]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_5_1', 'door_8_1'), link('pressure_13_3', 'door_8_4')]),
+  ], [[[3, 5], [3, 4]], [[13, 5], [13, 4]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_5_1', 'door_8_1'), link('pressure_13_3', 'door_8_4')], true, [{ door: 'door_8_1', releaseBy: 'partner' }, { door: 'door_8_4', releaseBy: 'partner' }]),
   level('6-03', 6, '菌丝工坊', '一长一短', '长伙伴负责占位，短伙伴负责转身', [
     '##################', '#..B....#..##....#', '#..###..D..#.....#', '#.......#..#.....#', '#.###...#....B...#', '#.......D.##..X..#', '#....#..#........#', '##################'
   ], [[[6, 3], [5, 3], [4, 3], [3, 3], [2, 3]], [[2, 5], [2, 6]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_3_1', 'door_8_2'), link('pressure_13_4', 'door_8_5')], true, [{ door: 'door_8_2', releaseBy: 'alternate-door' }, { door: 'door_8_5', releaseBy: 'partner' }]),
   level('6-04', 6, '菌丝工坊', '三段分工', '连续经过剪刀，安排三位伙伴的岗位', [
     '#####################', '#....S...#..S..#....#', '#.##.....#......##..#', '#..B.##..D..#..B....#', '#.....#..#..#.......#', '#.##.....D..##...X..#', '#........#..........#', '#####################'
-  ], [[[2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [8, 6]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_3_3', 'door_9_3'), link('pressure_15_3', 'door_9_5')]),
+  ], [[[2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [8, 6]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_3_3', 'door_9_3'), link('pressure_15_3', 'door_9_5')], true, [{ door: 'door_9_3', releaseBy: 'partner' }, { door: 'door_9_5', releaseBy: 'partner' }]),
   level('6-05', 6, '菌丝工坊', '一个都不能少', '开门、换岗、释放守门者，三位都要回家', [
     '######################', '#.......#.....#......#', '#..B.R..#B.R..#..##..#', '#.##....#.....#..#...#', '#....#..D..#..D.##.X.#', '#..#....#..#..#......#', '#.......#.....#......#', '######################'
   ], [[[7, 6], [6, 6]], [[13, 6], [12, 6]], [[17, 6], [17, 5]]], goals('ALL_CHARACTERS_EXIT'), [link('pressure_3_2', 'door_8_4'), link('pressure_9_2', 'door_14_4')], true, [{ door: 'door_8_4', releaseBy: 'rock' }, { door: 'door_14_4', releaseBy: 'rock' }]),
@@ -82,7 +84,7 @@ module.exports = [
   ], [[[2, 3], [2, 4]], [[5, 3], [5, 4]], [[8, 3], [8, 4]], [[9, 3], [9, 4]]], goals('ALL_CHARACTERS_EXIT'), [link('head_pressure_2_1', 'door_10_2'), link('head_pressure_5_1', 'door_10_2'), link('head_pressure_8_1', 'door_10_2'), link('head_pressure_15_4', 'door_10_5')], true, [{ door: 'door_10_2', releaseBy: 'alternate-door' }, { door: 'door_10_5', releaseBy: 'partner' }]),
   level('7-03', 7, '发光菌洞', '各回各家', '三位伙伴分别占据三个出口', [
     '#####################', '#..X......X......X..#', '#..#..#...#..#..#...#', '#..#..#...#..#..##..#', '#.####..###..####.#.#', '#...................#', '#..###.........###..#', '#####################'
-  ], [[[2, 5], [3, 5]], [[10, 5], [11, 5]], [[17, 5], [17, 4]]], goals('ALL_EXITS_OCCUPIED')),
+  ], [[[2, 5], [3, 5]], [[10, 5], [11, 5]], [[17, 5], [17, 4]]], goals('ALL_EXITS_OCCUPIED'), [], true),
   level('7-04', 7, '发光菌洞', '蛋与守门人', '一位伙伴守门，另一位把蛋送回草窝', [
     '######################', '#..P..#...#..........#', '#.....#...D.....E..N.#', '#.###.....#..###.....#', '#.....#...#....P.....#', '#.........D.##....X..#', '#....#....#..........#', '######################'
   ], [[[8, 3], [7, 3]], [[2, 5], [2, 6]]], goals('DELIVER_ALL_EGGS', 'ALL_CHARACTERS_EXIT'), [link('buddy_pressure_3_1', 'door_10_2'), link('buddy_pressure_15_4', 'door_10_5')], true, [{ door: 'door_10_2', releaseBy: 'alternate-door' }, { door: 'door_10_5', releaseBy: 'partner' }]),
@@ -195,3 +197,12 @@ module.exports = [
     '########################', '#..##...###.##K.####.#.#', '#.##..###...O...#A.#####', '#.......#.......#..L.4X#', '#.##..###.##C.C.#..#####', '#....O..#.......2.A#.#.#', '#.##..###.##....####.#.#', '########################'
   ], [[[4, 5], [3, 5], [2, 5], [1, 5]]], goals('COLLECT_ALL_APPLES', 'REACH_EXIT'), [], true)
 ]
+
+const earlyOrder = [0, 1, 2, 6, 12, 3, 7, 9, 10, 8, 4, 5, 11, 13, 14]
+const ordered = [...earlyOrder.map(index => levels[index]), ...levels.slice(15)]
+ordered.slice(0, 15).forEach((item, index) => {
+  item.id = `${Math.floor(index / 5) + 1}-${String(index % 5 + 1).padStart(2, '0')}`
+  item.chapter = Math.floor(index / 5) + 1
+  item.chapterName = EARLY_CHAPTER_NAMES[item.chapter - 1]
+})
+module.exports = ordered

@@ -2,11 +2,18 @@ const { Game, LEVELS, DIRS, key } = require('./core')
 const { resolveSwipe, chapterY } = require('./input')
 const SOLUTIONS = require('./solutions')
 
-const sys = wx.getSystemInfoSync()
+const sys = wx.getWindowInfo(), device = wx.getDeviceInfo(), logger = wx.getLogManager?.({ level: 0 })
+function recordError(type, error) {
+  const value = error?.reason ?? error, message = typeof value === 'string' ? value : value?.stack || value?.message || String(value)
+  try { logger?.error(type, message, device.model, device.system) } catch (_) {}
+  try { wx.setStorageSync('lastRuntimeError', { type, message, time: Date.now(), model: device.model, system: device.system }) } catch (_) {}
+}
+if (wx.onError) wx.onError(error => recordError('runtime', error))
+if (wx.onUnhandledRejection) wx.onUnhandledRejection(error => recordError('promise', error))
 const W = sys.windowWidth, H = sys.windowHeight, DPR = Math.min(sys.pixelRatio || 1, 2)
 const safe = sys.safeArea || { top: 0, bottom: H }
 let capsule = null
-try { capsule = wx.getMenuButtonBoundingClientRect() } catch (_) {}
+try { capsule = wx.getMenuButtonBoundingClientRect() } catch (error) { recordError('menu-button', error) }
 const SAFE_TOP = Math.max(0, safe.top || 0)
 const SAFE_BOTTOM = Math.max(0, H - (safe.bottom || H))
 // Some iOS/WeChat combinations briefly return portrait safe-area coordinates
@@ -26,6 +33,7 @@ canvas.width = W * DPR; canvas.height = H * DPR; ctx.scale(DPR, DPR)
 function loadCanvasImage(src) {
   const image = wx.createImage()
   image.onload = () => scheduleFrame()
+  image.onerror = error => recordError(`image:${src}`, error)
   image.src = src
   return image
 }
@@ -58,12 +66,12 @@ let touch = null, controls = [], transition = 1, shake = 0, particles = [], visu
 let motion = null, bumpMotion = null, pushMotion = null, failedMotion = null, lastDirections = {}
 let lastActionAt = Date.now()
 let lastQueuedDirection = null, lastQueuedAt = 0, boardLayout = { tile: 0, ox: 0, oy: 0 }, winAt = 0
-let audio
+let audio, audioInterrupted = false
 let muted = Boolean(wx.getStorageSync('muted'))
 let directionButtons = Boolean(wx.getStorageSync('directionButtons'))
 let mapScrollY = 0, mapVelocityY = 0, mapDragging = false, mapNeedsFocus = true, mapSettingsOpen = false
 let appVisible = true, frameTimer = null, renderToken = 0
-let frustration = 0, teaching = null, challenge = null, winMoment = null, lastChallengeQuery = ''
+let frustration = 0, teaching = null, challenge = null, winMoment = null, lastChallengeQuery = '', lastMenuShareEntry = false
 const MAP_VIEW_TOP = SAFE_TOP, MAP_VIEW_BOTTOM = H - SAFE_BOTTOM
 const MAP_PAGE_HEIGHT = Math.max(370, H - SAFE_TOP - SAFE_BOTTOM)
 const TEACHING = [
@@ -76,12 +84,17 @@ const TEACHING = [
   ['portal', 'portals', 'O', '进入回声花，整条身体会从另一端重现'], ['acid', 'acids', 'C', '酸果会让身体缩短一节'],
   ['key', 'keys', 'K', '心钥会随身携带，并在开锁时消耗']
 ]
+function resetTeaching() {
+  TEACHING.forEach(([id]) => wx.removeStorageSync(`taught_${id}`)); teaching = null
+  wx.showToast?.({ title: '机关说明已重置', icon: 'none' })
+}
 
 function track(action, data = {}) {
   if (typeof wx.reportEvent !== 'function') return false
   const level = LEVELS[game.level], mechanics = TEACHING.filter(([, , tokens]) => level.tiles.some(row => [...row].some(cell => tokens.includes(cell)))).map(([id]) => id).join(',') || 'none'
   try { wx.reportEvent('game_flow', { action, level_id: level.id, level: game.level + 1, chapter: level.chapter, moves: game.moves, mechanics, screen: scene, challenge: challenge ? 1 : 0, ...data }); return true } catch (_) { return false }
 }
+track('game_start', { source: scene === 'title' ? 'new' : 'returning' })
 function trackChapter() {
   const chapter = LEVELS[game.level].chapter, storageKey = `analytics_chapter_${chapter}`
   if (!challenge && !wx.getStorageSync(storageKey) && track('chapter_reached', { screen: 'play' })) wx.setStorageSync(storageKey, 1)
@@ -114,6 +127,10 @@ function openChallenge(query) {
   challenge = { level: level - 1, moves, mainLevel: challenge?.mainLevel ?? unlocked - 1 }
   lastChallengeQuery = signature; loadLevel(challenge.level); track('share_enter', { screen: 'play', source: 'challenge', target_moves: moves }); scene = 'play'; transition = 1
 }
+function openMenuShare(query) {
+  if (query?.source !== 'menu') { lastMenuShareEntry = false; return }
+  if (!lastMenuShareEntry) { lastMenuShareEntry = true; track('share_enter', { source: 'menu' }) }
+}
 function returnToMain() {
   const level = challenge?.mainLevel ?? Math.min(Number(wx.getStorageSync('unlocked')) || 1, LEVELS.length) - 1
   challenge = null; loadLevel(level); scene = 'play'; transition = 1
@@ -135,8 +152,8 @@ function shareChallenge() {
     cardCtx.fillStyle = '#f7f0ce'; cardCtx.font = '900 52px sans-serif'; cardCtx.fillText(`第 ${level} 关`, 300, 185)
     cardCtx.font = '900 72px sans-serif'; cardCtx.fillText(`${moves} 步`, 300, 285)
     cardCtx.font = '700 30px sans-serif'; cardCtx.fillText('你能更少吗？', 300, 365)
-    card.toTempFilePath({ destWidth: 600, destHeight: 480, fileType: 'jpg', quality: .9, success: result => share(result.tempFilePath), fail: () => share() })
-  } catch (_) { share() }
+    card.toTempFilePath({ destWidth: 600, destHeight: 480, fileType: 'jpg', quality: .9, success: result => share(result.tempFilePath), fail: error => { recordError('share-card', error); share() } })
+  } catch (error) { recordError('share', error); share() }
 }
 
 function mapMetrics() {
@@ -171,7 +188,7 @@ function fitText(text, maxWidth) {
 }
 
 function sound(kind) {
-  if (muted) return
+  if (muted || audioInterrupted) return
   try {
     audio ||= wx.createWebAudioContext()
     const osc = audio.createOscillator(), gain = audio.createGain(), now = audio.currentTime
@@ -180,7 +197,7 @@ function sound(kind) {
     if (kind === 'win') osc.frequency.exponentialRampToValueAtTime(990, now + .22)
     gain.gain.setValueAtTime(.055, now); gain.gain.exponentialRampToValueAtTime(.001, now + .18)
     osc.connect(gain); gain.connect(audio.destination); osc.start(now); osc.stop(now + .2)
-  } catch (_) {}
+  } catch (error) { recordError('audio', error) }
 }
 
 function addControl(x, y, w, h, action, blockSwipe = false) { controls.push({ x, y, w, h, action, blockSwipe }) }
@@ -259,7 +276,7 @@ function title() {
   ctx.fillStyle = '#533217'; ctx.font = '900 18px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(cta, x, ctaY + ctaH / 2)
   ctx.restore()
   addControl(ctaX, ctaY, ctaW, ctaH, () => {
-    track('game_start', { source: returning ? 'continue' : 'new' }); wx.setStorageSync('seenIntro', 1); sound('win')
+    wx.setStorageSync('seenIntro', 1); sound('win')
     if (returning) { loadLevel(unlocked - 1); scene = 'play'; transition = 1 }
     else { scene = 'map'; mapNeedsFocus = true }
   }, true)
@@ -374,6 +391,8 @@ function mapScreen(time) {
     ctx.textAlign = 'left'; ctx.fillStyle = C.cream
     ctx.fillText('声音', panelX + 20, panelY + 153)
     mapSegmentedToggle(panelX + 20, panelY + 169, !muted, () => { muted = !muted; wx.setStorageSync('muted', muted); if (!muted) sound('select') })
+    ctx.fillText('教学', panelX + 20, panelY + 228)
+    button('重看机关说明', panelX + 20, panelY + 244, panelW - 40, resetTeaching)
     ctx.restore()
   }
   if (distance > MAP_PAGE_HEIGHT * .55) button('回到当前', 18, H - SAFE_BOTTOM - BUTTON_H - 12, 100, () => { mapNeedsFocus = true; sound('select') })
@@ -382,6 +401,8 @@ function mapScreen(time) {
 function object(type, x, y, s, t, active = false) {
   const cx = x + s / 2, cy = y + s / 2
   ctx.save()
+  ctx.shadowColor = 'transparent'; ctx.fillStyle = 'rgba(8,5,7,.42)'; ctx.beginPath(); ctx.ellipse(cx + s * .08, cy + s * .32, s * .3, s * .11, 0, 0, 7); ctx.fill()
+  ctx.translate(0, -s * .07)
   const objectScale = {
     apple: 1.3,
     rock: 1.24,
@@ -530,6 +551,8 @@ function drawSmoothBody(worm, tile, ox, oy) {
 }
 
 function wormBody(worm, index, tile, ox, oy, time, feel = {}) {
+  ctx.save(); ctx.translate(tile * .07, tile * .11); ctx.strokeStyle = 'rgba(8,5,7,.46)'; ctx.lineWidth = tile * .82; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; drawSmoothBody(worm, tile, ox, oy); ctx.restore()
+  ctx.save(); ctx.translate(0, -tile * .055)
   ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = index === game.active ? C.pink : '#dd7891'; ctx.lineWidth = tile * .78
   drawSmoothBody(worm, tile, ox, oy)
   worm.forEach((p, i) => { if (i && i % 2) { ctx.fillStyle = C.rose; ctx.beginPath(); ctx.arc(ox + (p[0] + .5) * tile, oy + (p[1] + .5) * tile, tile * .31, 0, 7); ctx.fill() } })
@@ -559,6 +582,7 @@ function wormBody(worm, index, tile, ox, oy, time, feel = {}) {
   }
   if (feel.sweat) { ctx.fillStyle = '#9cdded'; ctx.beginPath(); ctx.moveTo(hx - vy * tile * .36, hy + vx * tile * .36); ctx.quadraticCurveTo(hx - vy * tile * .5 - vx * 4, hy + vx * tile * .5 - vy * 4, hx - vy * tile * .39, hy + vx * tile * .55); ctx.quadraticCurveTo(hx - vy * tile * .29, hy + vx * tile * .46, hx - vy * tile * .36, hy + vx * tile * .36); ctx.fill() }
   if (feel.celebrate) for (const side of [-1, 1]) { ctx.fillStyle = side > 0 ? C.yellow : '#ff86b5'; ctx.beginPath(); ctx.arc(hx - vy * tile * .58 * side, hy + vx * tile * .58 * side + Math.sin(time / 100) * 3, tile * .055, 0, 7); ctx.fill() }
+  ctx.restore()
 }
 
 function particlesDraw() {
@@ -610,16 +634,19 @@ function play(time) {
   controls = []; ctx.save(); if (shake > 0) { ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake *= .82 }
   const theme = currentChapterTheme(), chapterNumber = LEVELS[game.level]?.chapter || 1
   playBackdrop(theme)
+  const light = ctx.createRadialGradient(W * .38, PLAY_VIEW_TOP, 0, W * .38, PLAY_VIEW_TOP, W * .72)
+  light.addColorStop(0, 'rgba(255,230,151,.11)'); light.addColorStop(1, 'rgba(8,5,7,.2)'); ctx.fillStyle = light; ctx.fillRect(0, PLAY_VIEW_TOP, W, PLAY_VIEW_BOTTOM - PLAY_VIEW_TOP)
   const availableH = PLAY_VIEW_BOTTOM - PLAY_VIEW_TOP, tile = Math.floor(Math.min((W - 32) / game.w, availableH / game.h)), ox = Math.floor((W - game.w * tile) / 2)
   const oy = PLAY_VIEW_TOP + Math.min(Math.floor(Math.max(0, availableH - game.h * tile) * .15), 16)
   boardLayout = { tile, ox, oy }
   ctx.fillStyle = theme.floor; ctx.strokeStyle = theme.rim; ctx.lineWidth = 1
   for (let y = 0; y < game.h; y++) for (let x = 0; x < game.w; x++) if (!game.walls.has(key([x, y]))) {
+    ctx.fillStyle = 'rgba(8,5,7,.34)'; rr(ox + x * tile - 1, oy + y * tile + tile * .09, tile + 2, tile + 2, tile * .19); ctx.fillStyle = theme.floor
     rr(ox + x * tile - 1, oy + y * tile - 1, tile + 2, tile + 2, tile * .19)
     ctx.stroke()
     ctx.fillStyle = 'rgba(255,255,255,.026)'; ctx.beginPath(); ctx.arc(ox + (x + .25) * tile, oy + (y + .28) * tile, Math.max(1, tile * .025), 0, 7); ctx.fill(); ctx.fillStyle = theme.floor
   }
-  ctx.fillStyle = theme.wall; game.walls.forEach(p => { const [x, y] = p.split(',').map(Number); rr(ox + x * tile + 2, oy + y * tile + 3, tile - 4, tile - 5, tile * .14); ctx.fillStyle = theme.rim; rr(ox + x * tile + 5, oy + y * tile + 5, tile - 10, Math.max(2, tile * .08), tile * .04); ctx.fillStyle = theme.wall })
+  ctx.fillStyle = theme.wall; game.walls.forEach(p => { const [x, y] = p.split(',').map(Number); ctx.fillStyle = 'rgba(8,5,7,.5)'; rr(ox + x * tile + 2, oy + y * tile + tile * .14, tile - 4, tile - 5, tile * .14); ctx.fillStyle = theme.wall; rr(ox + x * tile + 2, oy + y * tile + 3, tile - 4, tile - 5, tile * .14); ctx.fillStyle = theme.rim; rr(ox + x * tile + 5, oy + y * tile + 5, tile - 10, Math.max(2, tile * .08), tile * .04); ctx.fillStyle = theme.wall })
   const now = Date.now()
   if (failedMotion && now - failedMotion.start >= 1400) failedMotion = null
   const occupied = new Set(game.liveWorms().flat().map(key))
@@ -812,18 +839,20 @@ wx.onTouchEnd(e => {
 })
 wx.onTouchCancel(() => { mapDragging = false; touch = null })
 
-try { openChallenge(wx.getLaunchOptionsSync().query) } catch (_) {}
+try { const query = wx.getLaunchOptionsSync().query; openMenuShare(query); openChallenge(query) } catch (error) { recordError('launch-options', error) }
 try {
   wx.showShareMenu({ menus: ['shareAppMessage'] })
-  wx.onShareAppMessage(() => { track('share_click', { source: 'menu' }); return { title: '一条身体，两颗脑袋？来帮泥土小伙伴回家' } })
+  wx.onShareAppMessage(() => { track('share_click', { source: 'menu' }); return { title: '一条身体，两颗脑袋？来帮泥土小伙伴回家', query: 'source=menu' } })
   wx.onHide(() => { appVisible = false; renderToken++; clearTimeout(frameTimer); if (!challenge) wx.setStorageSync('caveLevel', game.level); if (audio?.state === 'running') audio.suspend() })
-  wx.onShow(options => { appVisible = true; openChallenge(options?.query); if (audio?.state === 'suspended') audio.resume(); scheduleFrame() })
+  wx.onShow(options => { appVisible = true; openMenuShare(options?.query); openChallenge(options?.query); if (!audioInterrupted && audio?.state === 'suspended') audio.resume(); scheduleFrame() })
+  wx.onAudioInterruptionBegin?.(() => { audioInterrupted = true; if (audio?.state === 'running') audio.suspend() })
+  wx.onAudioInterruptionEnd?.(() => { audioInterrupted = false; if (appVisible && audio?.state === 'suspended') audio.resume() })
   if (wx.onKeyDown) wx.onKeyDown(({ key }) => {
     const keys = { ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down', ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right' }
     if (scene === 'play' && keys[key]) enqueue(keys[key])
     if (scene === 'play' && (key === 'z' || key === 'Backspace')) undoLevel()
   })
-} catch (_) {}
+} catch (error) { recordError('app-events', error) }
 
 function activeAnimation() {
   return transition > 0 || motion || bumpMotion || pushMotion || failedMotion || particles.length || shake > .1 || inputQueue.length || (scene === 'map' && (mapDragging || Math.abs(mapVelocityY) > .1))
