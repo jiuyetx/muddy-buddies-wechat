@@ -14,6 +14,9 @@ const chapterCells = chapter => LEVELS.filter(level => level.chapter === chapter
 assert(!/[RSE]/.test(chapterCells(1)) && chapterCells(1).includes('A'), 'chapter 1 must focus on movement and growth')
 assert(['R', 'E', 'N', 'B'].every(cell => chapterCells(2).includes(cell)) && !chapterCells(2).includes('S'), 'chapter 2 must focus on pushing and delivery')
 assert(chapterCells(3).includes('S') && LEVELS.filter(level => level.chapter === 3).some(level => level.entities.filter(entity => entity.type === 'WORM').length > 1), 'chapter 3 must focus on splitting and teamwork')
+assert(['S', '2', '4'].every(cell => chapterCells(4).includes(cell)), 'chapter 4 must teach splitting and length gates')
+assert(LEVELS.every((level, index) => level.chapter !== 5 || level.tiles.join('').includes('M') && SOLUTIONS[index].includes('fuse')), 'chapter 5 must require fusion in every level')
+assert(LEVELS.filter(level => level.chapter === 6).every(level => level.tiles.join('').includes('+')) && SOLUTIONS[29].includes('fuse'), 'chapter 6 must use body circuits and end with fusion')
 assert(!require('fs').readFileSync(require.resolve('./core'), 'utf8').includes('levelId ==='))
 assert(gameSource.includes('DPR = Math.min(sys.pixelRatio || 1, 2)'))
 assert(gameSource.includes("activeAnimation() ? 0 : scene === 'title' ? 250 : 67"))
@@ -66,7 +69,7 @@ function exitReachable(level, doorsOpen, start = level.entities.find(entity => e
     if (level.tiles[y][x] === 'O') neighbors.push(...portals.filter(([px, py]) => px !== x || py !== y))
     for (const [nx, ny] of neighbors) {
       const cell = level.tiles[ny]?.[nx], id = `${nx},${ny}`
-      if (cell && cell !== '#' && (doorsOpen || cell !== 'D') && !seen.has(id)) { seen.add(id); queue.push([nx, ny]) }
+      if (cell && cell !== '#' && (doorsOpen || !'D24'.includes(cell)) && !seen.has(id)) { seen.add(id); queue.push([nx, ny]) }
     }
   }
   return false
@@ -152,20 +155,24 @@ assert.equal(manualCut.worms.length, 2)
 assert.equal(manualCut.worms[1][manualCut.worms[1].length - 1].id, joined)
 assert.equal(manualCut.worms[0][manualCut.worms[0].length - 1].next, null)
 
-const buddyPlate = new Game(20)
+const buddyPlate = new Game(0)
+buddyPlate.entityById.set('buddy_pressure_3_1', { type: 'BUDDY_PRESSURE', position: [3, 1] })
 buddyPlate.rocks.add('3,1')
 assert.equal(buddyPlate.pressureActive('buddy_pressure_3_1'), false)
 buddyPlate.worm = [[2, 1], [3, 1]]
 assert.equal(buddyPlate.pressureActive('buddy_pressure_3_1'), true)
 
-const headPlate = new Game(21)
+const headPlate = new Game(0)
+headPlate.entityById.set('head_pressure_2_1', { type: 'HEAD_PRESSURE', position: [2, 1] })
 headPlate.worm = [[2, 2], [2, 1]]
 assert.equal(headPlate.pressureActive('head_pressure_2_1'), false)
 headPlate.worm = [[2, 1], [2, 2]]
 assert.equal(headPlate.pressureActive('head_pressure_2_1'), true)
 
-const everybody = new Game(17)
-everybody.worms = [everybody.makeWorm([[13, 5], [13, 4]]), everybody.makeWorm([[14, 6], [13, 6]])]
+const everybody = new Game(0)
+everybody.objectives = [{ type: 'ALL_CHARACTERS_EXIT' }]
+everybody.exits = new Set(['3,3', '3,2'])
+everybody.worms = [everybody.makeWorm([[2, 3], [1, 3]]), everybody.makeWorm([[2, 2], [1, 2]])]
 everybody.relink()
 assert.equal(everybody.move('right'), true)
 assert.equal(everybody.won, false)
@@ -174,10 +181,11 @@ assert.equal(everybody.select(0), false)
 assert.equal(everybody.undo(), true)
 assert.equal(everybody.liveWorms().length, 2)
 assert.equal(everybody.move('right'), true)
-assert.equal(everybody.move('up'), true)
+assert.equal(everybody.move('right'), true)
 assert.equal(everybody.won, true)
 
-const occupiedExits = new Game(22)
+const occupiedExits = new Game(0)
+occupiedExits.exits = new Set(['3,3', '3,2'])
 const exits = [...occupiedExits.exits].map(exit => exit.split(',').map(Number))
 occupiedExits.worms = exits.map(([x, y]) => occupiedExits.makeWorm([[x, y]]))
 occupiedExits.relink()
